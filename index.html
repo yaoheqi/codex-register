@@ -1247,6 +1247,203 @@
       padding: 22px 24px 26px;
     }
 
+    .workspace-panel {
+      display: grid;
+      overflow: hidden;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(249, 252, 255, 0.98));
+    }
+
+    .workspace-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 18px;
+      align-items: center;
+      padding: 22px 24px;
+      border-bottom: 1px solid var(--line);
+      background:
+        linear-gradient(180deg, #ffffff, #f8fbff);
+    }
+
+    .workspace-title {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .workspace-title h2 {
+      margin: 0;
+      font-size: 21px;
+      line-height: 1.2;
+      font-weight: 850;
+      color: var(--ink);
+    }
+
+    .workspace-title p {
+      margin: 0;
+      color: #60738c;
+      font-size: 13px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
+    .workspace-tabs,
+    .inventory-kind-tabs {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #edf3f9;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    }
+
+    .workspace-tab {
+      min-height: 38px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: #52657f;
+      padding: 0 16px;
+      box-shadow: none;
+      font-size: 14px;
+      font-weight: 850;
+    }
+
+    .workspace-tab:hover {
+      background: rgba(255, 255, 255, 0.78);
+      box-shadow: none;
+      transform: none;
+    }
+
+    .workspace-tab.active {
+      background: #ffffff;
+      color: var(--blue);
+      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+    }
+
+    .workspace-view {
+      display: none;
+      padding: 24px;
+    }
+
+    .workspace-view.active {
+      display: grid;
+      gap: 22px;
+    }
+
+    .write-layout {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .write-field {
+      min-width: 0;
+      display: grid;
+      gap: 10px;
+      align-content: start;
+      padding: 18px;
+      border: 1px solid rgba(184, 197, 214, 0.72);
+      border-radius: 10px;
+      background: #fbfdff;
+    }
+
+    .write-field span {
+      color: var(--ink);
+      font-size: 16px;
+      line-height: 1.2;
+      font-weight: 850;
+    }
+
+    .write-field small {
+      color: #667990;
+      font-size: 12px;
+      line-height: 1.45;
+      font-weight: 650;
+    }
+
+    .write-field textarea {
+      min-height: 178px;
+      border-color: #cfd9e7;
+      background: #ffffff;
+    }
+
+    .workspace-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      padding-top: 2px;
+    }
+
+    .workspace-footnote {
+      color: #60738c;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .workspace-footer .primary {
+      min-width: 132px;
+    }
+
+    .inventory-toolbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 18px;
+      align-items: center;
+    }
+
+    .inventory-actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .inventory-pane {
+      display: none;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .inventory-pane.active {
+      display: grid;
+    }
+
+    .inventory-controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      padding: 16px;
+      border: 1px solid rgba(184, 197, 214, 0.72);
+      border-radius: 10px;
+      background: #fbfdff;
+    }
+
+    .filter-stack {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .inventory-summary {
+      color: #60738c;
+      font-size: 13px;
+      font-weight: 750;
+    }
+
+    .inventory-pane .resource-list {
+      max-height: min(58vh, 620px);
+      padding: 4px 4px 4px 0;
+    }
+
     .task {
       border-radius: 12px;
       padding: 16px;
@@ -1282,7 +1479,10 @@
     @media (max-width: 1180px) {
       .topbar,
       .hero,
-      .inventory-grid {
+      .inventory-grid,
+      .workspace-head,
+      .inventory-toolbar,
+      .write-layout {
         grid-template-columns: 1fr;
       }
 
@@ -1299,7 +1499,9 @@
       .config,
       .resource-grid,
       .run-grid,
-      .resource-row {
+      .resource-row,
+      .write-layout,
+      .inventory-toolbar {
         grid-template-columns: 1fr;
       }
 
@@ -1321,6 +1523,31 @@
         width: 100%;
       }
 
+      .workspace-head,
+      .workspace-view,
+      .inventory-controls,
+      .workspace-footer {
+        align-items: stretch;
+      }
+
+      .workspace-tabs,
+      .inventory-kind-tabs,
+      .filter-stack,
+      .inventory-actions,
+      .workspace-footer {
+        width: 100%;
+      }
+
+      .workspace-tab,
+      .inventory-actions > button,
+      .workspace-footer .primary {
+        flex: 1;
+      }
+
+      .workspace-footer {
+        display: grid;
+      }
+
       .segment {
         flex: 1;
       }
@@ -1339,6 +1566,8 @@
       .ai-head,
       .ai-body,
       .inventory-head,
+      .workspace-head,
+      .workspace-view,
       .tasks-head,
       .inventory-grid,
       .task-list {
@@ -1406,53 +1635,76 @@
         </section>
       </div>
 
-      <section class="panel resource-panel">
-        <div class="resource-head">
-          <div>
-            <h2 class="section-title">资源写入</h2>
-            <div class="source-note">SQLite 数据源 · codex-register/data/resources.sqlite3</div>
+      <section class="panel workspace-panel">
+        <div class="workspace-head">
+          <div class="workspace-title">
+            <h2>资源工作台</h2>
+            <p>SQLite 数据源 · codex-register/data/resources.sqlite3</p>
           </div>
-          <div class="resource-chip">邮箱 + CDK</div>
+          <div class="workspace-tabs" id="workspaceTabs" role="tablist" aria-label="资源工作台">
+            <button class="workspace-tab active" type="button" data-workspace-view="write">资源写入</button>
+            <button class="workspace-tab" type="button" data-workspace-view="inventory">资源查看</button>
+          </div>
         </div>
-        <div class="resource-grid">
-          <label>邮箱
-            <textarea id="emailText" spellcheck="false" placeholder="一行一个邮箱账号：email----password----client_id----refresh_token"></textarea>
-          </label>
-          <label>CDK
-            <textarea id="cdkText" spellcheck="false" placeholder="一行一个 CDK"></textarea>
-          </label>
-        </div>
-        <div class="resource-action">
-          <button id="addResources" class="primary">写入资源</button>
-        </div>
-      </section>
 
-      <section class="panel inventory-panel">
-        <div class="inventory-head">
-          <h2>资源查看</h2>
-          <button id="refreshInventory">刷新</button>
+        <div class="workspace-view active" data-workspace-panel="write">
+          <div class="write-layout">
+            <label class="write-field"><span>邮箱</span>
+              <small>email----password----client_id----refresh_token</small>
+              <textarea id="emailText" spellcheck="false" placeholder="一行一个邮箱账号"></textarea>
+            </label>
+            <label class="write-field"><span>CDK</span>
+              <small>一行一个 CDK</small>
+              <textarea id="cdkText" spellcheck="false" placeholder="一行一个 CDK"></textarea>
+            </label>
+          </div>
+          <div class="workspace-footer">
+            <div class="workspace-footnote">SQLite 资源池</div>
+            <button id="addResources" class="primary">写入资源</button>
+          </div>
         </div>
-        <div class="inventory-grid">
-          <div class="inventory-section">
-            <div class="inventory-title">邮箱</div>
-            <div class="segmented" id="emailStatusTabs">
-              <button class="segment active" data-email-status="unregistered">未注册</button>
-              <button class="segment" data-email-status="registered">已注册</button>
-              <button class="segment" data-email-status="received">已接码</button>
+
+        <div class="workspace-view" data-workspace-panel="inventory">
+          <div class="inventory-toolbar">
+            <div class="workspace-title">
+              <h2>资源查看</h2>
+              <p>邮箱 · CDK · 售卖状态</p>
             </div>
-            <div class="segmented" id="emailSaleTabs">
-              <button class="segment active" data-email-sale="unsold">未卖出</button>
-              <button class="segment" data-email-sale="sold">已卖出</button>
-              <button class="segment" data-email-sale="all">全部</button>
+            <div class="inventory-actions">
+              <div class="inventory-kind-tabs" id="inventoryKindTabs" role="tablist" aria-label="资源类型">
+                <button class="workspace-tab active" type="button" data-inventory-kind="email">邮箱</button>
+                <button class="workspace-tab" type="button" data-inventory-kind="cdk">CDK</button>
+              </div>
+              <button id="refreshInventory">刷新</button>
+            </div>
+          </div>
+
+          <div class="inventory-pane active" data-inventory-panel="email">
+            <div class="inventory-controls">
+              <div class="filter-stack">
+                <div class="segmented" id="emailStatusTabs">
+                  <button class="segment active" data-email-status="unregistered">未注册</button>
+                  <button class="segment" data-email-status="registered">已注册</button>
+                  <button class="segment" data-email-status="received">已接码</button>
+                </div>
+                <div class="segmented" id="emailSaleTabs">
+                  <button class="segment active" data-email-sale="unsold">未卖出</button>
+                  <button class="segment" data-email-sale="sold">已卖出</button>
+                  <button class="segment" data-email-sale="all">全部</button>
+                </div>
+              </div>
+              <div class="inventory-summary">邮箱资源</div>
             </div>
             <div id="emailList" class="resource-list"></div>
           </div>
 
-          <div class="inventory-section">
-            <div class="inventory-title">CDK</div>
-            <div class="segmented" id="cdkBucketTabs">
-              <button class="segment active" data-cdk-bucket="unused">未使用 CDK</button>
-              <button class="segment" data-cdk-bucket="used">已使用 CDK</button>
+          <div class="inventory-pane" data-inventory-panel="cdk">
+            <div class="inventory-controls">
+              <div class="segmented" id="cdkBucketTabs">
+                <button class="segment active" data-cdk-bucket="unused">未使用 CDK</button>
+                <button class="segment" data-cdk-bucket="used">已使用 CDK</button>
+              </div>
+              <div class="inventory-summary">CDK 资源</div>
             </div>
             <div id="cdkList" class="resource-list"></div>
           </div>
@@ -1475,6 +1727,8 @@
     const state = {
       stats: null,
       tasks: [],
+      workspaceView: 'write',
+      inventoryKind: 'email',
       emailStatus: 'unregistered',
       emailSale: 'unsold',
       cdkBucket: 'unused',
@@ -1709,6 +1963,24 @@
     }
 
     function updateSegments() {
+      document.querySelectorAll('[data-workspace-view]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.workspaceView === state.workspaceView);
+        button.setAttribute('aria-selected', String(button.dataset.workspaceView === state.workspaceView));
+      });
+      document.querySelectorAll('[data-workspace-panel]').forEach((panel) => {
+        const active = panel.dataset.workspacePanel === state.workspaceView;
+        panel.classList.toggle('active', active);
+        panel.hidden = !active;
+      });
+      document.querySelectorAll('[data-inventory-kind]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.inventoryKind === state.inventoryKind);
+        button.setAttribute('aria-selected', String(button.dataset.inventoryKind === state.inventoryKind));
+      });
+      document.querySelectorAll('[data-inventory-panel]').forEach((panel) => {
+        const active = panel.dataset.inventoryPanel === state.inventoryKind;
+        panel.classList.toggle('active', active);
+        panel.hidden = !active;
+      });
       document.querySelectorAll('[data-email-status]').forEach((button) => {
         button.classList.toggle('active', button.dataset.emailStatus === state.emailStatus);
       });
@@ -1840,11 +2112,24 @@
     }
 
     function bindEvents() {
+      updateSegments();
       $('saveConfig').addEventListener('click', () => saveConfig().catch((err) => toast(err.message)));
       $('addResources').addEventListener('click', () => addResources().catch((err) => toast(err.message)));
       $('startTask').addEventListener('click', () => startTask().catch((err) => toast(err.message)));
       $('refreshTasks').addEventListener('click', () => Promise.all([loadStats(), loadTasks(), loadInventory()]).catch((err) => toast(err.message)));
       $('refreshInventory').addEventListener('click', () => Promise.all([loadStats(), loadInventory()]).catch((err) => toast(err.message)));
+      document.querySelectorAll('[data-workspace-view]').forEach((button) => {
+        button.addEventListener('click', () => {
+          state.workspaceView = button.dataset.workspaceView || 'write';
+          updateSegments();
+        });
+      });
+      document.querySelectorAll('[data-inventory-kind]').forEach((button) => {
+        button.addEventListener('click', () => {
+          state.inventoryKind = button.dataset.inventoryKind || 'email';
+          updateSegments();
+        });
+      });
       document.querySelectorAll('[data-email-status]').forEach((button) => {
         button.addEventListener('click', () => {
           state.emailStatus = button.dataset.emailStatus || 'registered';
