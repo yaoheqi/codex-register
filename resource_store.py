@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import sqlite3
 import time
@@ -18,7 +17,6 @@ DB_FILE = DATA_DIR / "resources.sqlite3"
 GPT_LOGIN_MAIL_FILE = ROOT.parent / "gpt-login" / "mail.csv"
 EMAIL_UNUSED_FILE = DATA_DIR / "emails_unused" / "mail.csv"
 EMAIL_USED_FILE = DATA_DIR / "emails_used" / "mail.csv"
-EMAIL_STATUS_FILE = DATA_DIR / "email_statuses.json"
 CDK_UNUSED_FILE = DATA_DIR / "cdks_unused" / "cdks.txt"
 CDK_USED_FILE = DATA_DIR / "cdks_used" / "cdks.txt"
 
@@ -142,14 +140,6 @@ def read_lines(path: Path) -> list[str]:
     return values
 
 
-def read_json(path: Path, default: Any) -> Any:
-    try:
-        text = path.read_text(encoding="utf-8")
-        return json.loads(text) if text.strip() else default
-    except (FileNotFoundError, json.JSONDecodeError):
-        return default
-
-
 def email_key(value: str) -> str:
     return str(value or "").strip().lower()
 
@@ -182,28 +172,6 @@ def parse_email_record(line: str) -> dict[str, str] | None:
         "client_id": parts[2],
         "refresh_token": refresh_token,
     }
-
-
-def detect_mail_section_status(line: str) -> str | None:
-    text = str(line or "").strip()
-    if not text.startswith("#"):
-        return None
-    lower = text.lower()
-    if re.search(r"az:completed|status:completed|\bcompleted\b|\bsuccess\b|成功|已完成", lower):
-        return EMAIL_STATUS_REGISTERED
-    if re.search(r"az:not_started|status:not_started|not[-_\s]?started|未开始|待开始|待处理", lower):
-        return EMAIL_STATUS_UNREGISTERED
-    if re.search(r"az:failed|status:failed|\bfailed\b|\bfail\b|失败|已失败", lower):
-        return EMAIL_STATUS_UNREGISTERED
-    return None
-
-
-def status_from_legacy_record(item: dict[str, Any]) -> str:
-    if bool_value(item.get("has_received_code")):
-        return EMAIL_STATUS_RECEIVED
-    if bool_value(item.get("is_registered")):
-        return EMAIL_STATUS_REGISTERED
-    return EMAIL_STATUS_UNREGISTERED
 
 
 def better_status(current: str, incoming: str) -> str:
@@ -240,22 +208,15 @@ def import_email_file(
     conn: sqlite3.Connection,
     path: Path,
     default_status: str,
-    respect_sections: bool = False,
 ) -> dict[str, int]:
-    section_status = default_status
     imported = 0
     skipped = 0
     for line in read_lines(path):
-        if respect_sections:
-            next_status = detect_mail_section_status(line)
-            if next_status:
-                section_status = next_status
-                continue
         if str(line or "").strip().startswith("#"):
             continue
         account = parse_email_record(line)
         if account:
-            upsert_email(conn, account, register_status=section_status)
+            upsert_email(conn, account, register_status=default_status)
             imported += 1
         else:
             skipped += 1
@@ -283,43 +244,6 @@ def sync_source_files(conn: sqlite3.Connection | None = None) -> dict[str, int]:
             summary["emails_received"] += result["imported"]
         summary["emails_skipped"] += result["skipped"]
     return summary
-
-
-def import_email_status_json(conn: sqlite3.Connection) -> None:
-    data = read_json(EMAIL_STATUS_FILE, {})
-    if not isinstance(data, dict):
-        return
-    for key, item in data.items():
-        if not isinstance(item, dict):
-            continue
-        raw = str(item.get("raw") or "").strip()
-        account = parse_email_record(raw)
-        if not account:
-            email = str(item.get("email") or key).strip()
-            if not email:
-                continue
-            account = {
-                "raw": raw or email,
-                "email": email,
-                "password": str(item.get("password") or ""),
-                "client_id": str(item.get("client_id") or ""),
-                "refresh_token": str(item.get("refresh_token") or ""),
-            }
-        register_status = status_from_legacy_record(item)
-        sale_status = SALE_STATUS_SOLD if bool_value(item.get("is_sold")) else SALE_STATUS_UNSOLD
-        upsert_email(
-            conn,
-            account,
-            register_status=register_status,
-            sale_status=sale_status,
-            registered_at=item.get("registered_at"),
-            code_received_at=item.get("code_received_at"),
-            sold_at=item.get("sold_at"),
-            last_cdk=str(item.get("last_cdk") or ""),
-            last_task_id=str(item.get("last_task_id") or ""),
-            created_at=item.get("created_at"),
-            updated_at=item.get("updated_at"),
-        )
 
 
 def import_cdk_file(conn: sqlite3.Connection, path: Path, status: str) -> None:

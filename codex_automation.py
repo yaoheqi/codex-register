@@ -35,17 +35,9 @@ import resource_store as store
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
-GPT_LOGIN_DIR = ROOT.parent / "gpt-login"
-GPT_LOGIN_MAIL_FILE = GPT_LOGIN_DIR / "mail.csv"
 
-EMAIL_USED_DIR = DATA_DIR / "emails_used"
-CDK_UNUSED_DIR = DATA_DIR / "cdks_unused"
-CDK_USED_DIR = DATA_DIR / "cdks_used"
-
-EMAIL_USED_FILE = EMAIL_USED_DIR / "mail.csv"
-CDK_UNUSED_FILE = CDK_UNUSED_DIR / "cdks.txt"
-CDK_USED_FILE = CDK_USED_DIR / "cdks.txt"
-EMAIL_STATUS_FILE = DATA_DIR / "email_statuses.json"
+CDK_UNUSED_FILE = DATA_DIR / "cdks_unused" / "cdks.txt"
+CDK_USED_FILE = DATA_DIR / "cdks_used" / "cdks.txt"
 TASKS_FILE = DATA_DIR / "tasks.json"
 CONFIG_FILE = DATA_DIR / "config.json"
 INDEX_FILE = ROOT / "index.html"
@@ -255,15 +247,6 @@ def build_email_status_record(account: dict[str, str], current: dict[str, Any] |
     }
 
 
-def load_email_statuses() -> dict[str, dict[str, Any]]:
-    return store.load_email_records()
-
-
-def save_email_statuses(statuses: dict[str, dict[str, Any]]) -> None:
-    # SQLite 已经是唯一运行时数据源，保留此函数避免旧调用残留时报错。
-    return None
-
-
 def parse_optional_email_record(line: str) -> dict[str, str] | None:
     value = str(line or "").strip()
     if not value or value.startswith("#"):
@@ -272,10 +255,6 @@ def parse_optional_email_record(line: str) -> dict[str, str] | None:
         return parse_email_record(value)
     except AppError:
         return None
-
-
-def read_gpt_login_accounts() -> list[dict[str, str]]:
-    return list(store.load_email_records().values())
 
 
 def email_unavailable_for_automation(status: dict[str, Any] | None) -> bool:
@@ -622,7 +601,7 @@ def pick_unused_pair(email_value: str | None = None, cdk_value: str | None = Non
     with DATA_LOCK:
         cdks = store.cdk_values("unused")
     active_emails, active_cdks = active_values()
-    statuses = load_email_statuses()
+    statuses = store.load_email_records()
 
     if email_value:
         account = parse_email_record(email_value)
