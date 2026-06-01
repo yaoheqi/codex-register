@@ -1399,8 +1399,8 @@
           <div class="metric"><b id="statEmailsAvailable">0</b><span>可用未注册</span></div>
           <div class="metric"><b id="statEmailsRegistered">0</b><span>已注册邮箱</span></div>
           <div class="metric"><b id="statEmailsReceived">0</b><span>已接码邮箱</span></div>
-          <div class="metric"><b id="statEmailsUnsold">0</b><span>未售出接码</span></div>
-          <div class="metric"><b id="statEmailsSold">0</b><span>已售出接码</span></div>
+          <div class="metric"><b id="statEmailsUnsold">0</b><span>未售出邮箱</span></div>
+          <div class="metric"><b id="statEmailsSold">0</b><span>已售出邮箱</span></div>
           <div class="metric"><b id="statCdksUnused">0</b><span>未使用 CDK</span></div>
           <div class="metric"><b id="statCdksUsed">0</b><span>已使用 CDK</span></div>
         </section>
@@ -1662,13 +1662,13 @@
       }
 
       list.innerHTML = items.map((item) => {
-        const canUpdateSale = item.register_status === 'received';
-        const soldLabel = canUpdateSale ? (item.is_sold ? '已卖出' : '未卖出') : '待接码';
+        const canUpdateSale = item.register_status !== 'unregistered';
+        const soldLabel = canUpdateSale ? (item.is_sold ? '已卖出' : '未卖出') : '未注册';
         const nextSold = item.is_sold ? '0' : '1';
         const actionText = item.is_sold ? '改为未卖出' : '标记已卖出';
         const saleAction = canUpdateSale
           ? `<button class="small-button" data-email="${escapeHtml(item.email || '')}" data-sold="${nextSold}">${escapeHtml(actionText)}</button>`
-          : '<span class="badge">未接码</span>';
+          : '<span class="badge">未注册</span>';
         const codeText = item.has_received_code ? `已接码：${formatTime(item.code_received_at)}` : '未接码';
         const registerText = item.is_registered ? `已注册：${formatTime(item.registered_at)}` : '未注册';
         const cdkText = item.last_cdk ? `CDK：${compact(item.last_cdk, 16, 8)}` : 'CDK：-';

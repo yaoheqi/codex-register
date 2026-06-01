@@ -39,7 +39,7 @@ data/cdks_unused/cdks.txt
 data/cdks_used/cdks.txt
 ```
 
-邮箱注册状态分为 `unregistered`（未注册）、`registered`（已注册）、`received`（已接码）。自动接码任务只消耗 `registered` 邮箱，接码成功后进入 `received`。邮箱售出状态分为 `unsold`（未售出）和 `sold`（已售出），只作用于 `received` 邮箱。CDK 状态分为 `unused`（未使用）和 `used`（已使用）。
+邮箱注册状态分为 `unregistered`（未注册）、`registered`（已注册）、`received`（已接码）。自动接码任务只消耗 `registered` 邮箱，接码成功后进入 `received`。邮箱售出状态分为 `unsold`（未售出）和 `sold`（已售出），只统计并作用于 `registered` 与 `received` 邮箱。CDK 状态分为 `unused`（未使用）和 `used`（已使用）。
 
 供 `gpt-login` 调用的本地接口：
 

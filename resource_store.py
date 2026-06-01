@@ -490,7 +490,7 @@ def update_email_sale(values: list[str], is_sold: bool) -> dict[str, int]:
             if not row:
                 skipped += 1
                 continue
-            if str(row["register_status"]) != EMAIL_STATUS_RECEIVED:
+            if str(row["register_status"]) == EMAIL_STATUS_UNREGISTERED:
                 skipped += 1
                 continue
             conn.execute(
@@ -682,9 +682,9 @@ def stats(active_email_keys: set[str] | None = None, active_cdks: set[str] | Non
               SUM(CASE WHEN register_status = 'unregistered' THEN 1 ELSE 0 END) AS emails_unregistered,
               SUM(CASE WHEN register_status = 'registered' THEN 1 ELSE 0 END) AS emails_registered,
               SUM(CASE WHEN register_status = 'received' THEN 1 ELSE 0 END) AS emails_received,
-              SUM(CASE WHEN register_status = 'received'
+              SUM(CASE WHEN register_status IN ('registered', 'received')
                         AND sale_status = 'unsold' THEN 1 ELSE 0 END) AS emails_unsold,
-              SUM(CASE WHEN register_status = 'received'
+              SUM(CASE WHEN register_status IN ('registered', 'received')
                         AND sale_status = 'sold' THEN 1 ELSE 0 END) AS emails_sold,
               SUM(CASE WHEN register_status = 'unregistered' AND sale_status = 'unsold'
                         AND reserved_at IS NULL THEN 1 ELSE 0 END) AS emails_available,
