@@ -289,12 +289,18 @@ def record_email_status(email_record: str, **updates: Any) -> dict[str, Any]:
         raise AppError(str(exc)) from exc
 
 
-def list_email_statuses(status_filter: str = "registered", sale_filter: str = "unsold", query: str = "") -> dict[str, Any]:
+def list_email_statuses(
+    status_filter: str = "registered",
+    sale_filter: str = "unsold",
+    query: str = "",
+    page: Any = 1,
+    page_size: Any = 20,
+) -> dict[str, Any]:
     status_filter = (status_filter or "registered").strip().lower()
     sale_filter = (sale_filter or "unsold").strip().lower()
     try:
         with DATA_LOCK:
-            data = store.list_emails(status_filter, sale_filter, query)
+            data = store.list_emails(status_filter, sale_filter, query, page, page_size)
     except ValueError as exc:
         raise AppError(str(exc)) from exc
 
@@ -314,6 +320,60 @@ def update_email_sale_status(values: list[str], is_sold: bool) -> dict[str, int]
             return store.update_email_sale(values, is_sold)
     except ValueError as exc:
         raise AppError(str(exc)) from exc
+
+
+def delete_email_statuses(values: list[str]) -> dict[str, int]:
+    try:
+        with DATA_LOCK:
+            return store.delete_emails(values)
+    except ValueError as exc:
+        raise AppError(str(exc)) from exc
+
+
+def export_email_statuses(body: dict[str, Any]) -> dict[str, Any]:
+    selected_values = body.get("values") or []
+    if not isinstance(selected_values, list):
+        raise AppError("请选择要导出的邮箱")
+
+    selected_keys: list[str] = []
+    seen: set[str] = set()
+    for value in selected_values:
+        key = email_key(str(value or ""))
+        if key and key not in seen:
+            selected_keys.append(key)
+            seen.add(key)
+
+    if not selected_keys:
+        raise AppError("请选择要导出的邮箱")
+
+    with DATA_LOCK:
+        records = store.load_email_records()
+
+    export_items: list[dict[str, Any]] = []
+    skipped = 0
+    for key in selected_keys:
+        item = records.get(key)
+        if not item:
+            skipped += 1
+            continue
+        if item.get("register_status") == store.EMAIL_STATUS_UNREGISTERED:
+            skipped += 1
+            continue
+        export_items.append(item)
+
+    if not export_items:
+        raise AppError("选中的邮箱里没有可导出的已注册或已接码邮箱")
+
+    values = [str(item.get("email") or "") for item in export_items if item.get("email")]
+    updated = update_email_sale_status(values, True)
+    lines = [str(item.get("raw") or item.get("email") or "") for item in export_items]
+    return {
+        "count": len(lines),
+        "text": "\n".join(lines),
+        "filename": f"emails-selected-{now_ts()}.txt",
+        "sale": updated,
+        "skipped": skipped,
+    }
 
 
 def item_file(kind: str, bucket: str) -> Path:
@@ -425,21 +485,34 @@ def mask_secret(value: str, keep: int = 8) -> str:
     return value[:keep] + "..." + value[-keep:]
 
 
-def list_items(kind: str, bucket: str, query: str = "") -> dict[str, Any]:
+def list_items(kind: str, bucket: str, query: str = "", page: Any = 1, page_size: Any = 20) -> dict[str, Any]:
     if kind == "email":
         status = "unregistered" if bucket == "unused" else "registered"
-        return list_email_statuses(status, "all", query)
+        return list_email_statuses(status, "all", query, page, page_size)
     if kind != "cdk":
         raise AppError("类型只能是 email 或 cdk")
     if bucket not in {"unused", "used"}:
         raise AppError("列表只能是 unused 或 used")
     needle = (query or "").strip().lower()
+    page_number, size = store.normalize_page(page, page_size)
     with DATA_LOCK:
         lines = store.list_cdks(bucket, needle)
+    total = len(lines)
+    offset = (page_number - 1) * size
+    page_values = lines[offset : offset + size]
     items = []
-    for index, value in enumerate(lines):
+    for index, value in enumerate(page_values, start=offset):
         items.append(display_item(kind, value, index))
-    return {"kind": kind, "bucket": bucket, "count": len(lines), "items": items}
+    return {
+        "kind": kind,
+        "bucket": bucket,
+        "count": len(items),
+        "total": total,
+        "page": page_number,
+        "page_size": size,
+        "total_pages": max(1, (total + size - 1) // size),
+        "items": items,
+    }
 
 
 def add_items(kind: str, bucket: str, text: str | list[str]) -> dict[str, Any]:
@@ -1564,6 +1637,8 @@ class AppHandler(BaseHTTPRequestHandler):
                     query.get("status", ["registered"])[0],
                     query.get("sale", ["unsold"])[0],
                     query.get("q", [""])[0],
+                    query.get("page", ["1"])[0],
+                    query.get("page_size", ["20"])[0],
                 )
                 self.send_json({"code": 0, "data": data})
                 return
@@ -1571,7 +1646,13 @@ class AppHandler(BaseHTTPRequestHandler):
                 self.send_json({"code": 0, "data": gpt_login_mail_pool()})
                 return
             if path == "/api/list":
-                data = list_items(query.get("kind", [""])[0], query.get("bucket", [""])[0], query.get("q", [""])[0])
+                data = list_items(
+                    query.get("kind", [""])[0],
+                    query.get("bucket", [""])[0],
+                    query.get("q", [""])[0],
+                    query.get("page", ["1"])[0],
+                    query.get("page_size", ["20"])[0],
+                )
                 self.send_json({"code": 0, "data": data})
                 return
             if path == "/api/tasks":
@@ -1599,6 +1680,10 @@ class AppHandler(BaseHTTPRequestHandler):
             if path == "/api/list":
                 data = add_items(str(body.get("kind") or ""), str(body.get("bucket") or ""), body.get("text") or body.get("values") or "")
                 self.send_json({"code": 0, "message": "已添加", "data": data})
+                return
+            if path == "/api/emails/export":
+                data = export_email_statuses(body)
+                self.send_json({"code": 0, "message": "邮箱已导出并标记为已售出", "data": data})
                 return
             if path == "/api/automation/start":
                 task = create_automation_task(body.get("email") or None, body.get("cdk") or None)
@@ -1654,6 +1739,10 @@ class AppHandler(BaseHTTPRequestHandler):
             if path == "/api/list":
                 data = delete_items(str(body.get("kind") or ""), str(body.get("bucket") or ""), body.get("values") or [])
                 self.send_json({"code": 0, "message": "已删除", "data": data})
+                return
+            if path == "/api/emails":
+                data = delete_email_statuses(body.get("values") or [])
+                self.send_json({"code": 0, "message": "邮箱已删除", "data": data})
                 return
             if path == "/api/task-logs":
                 data = clear_task_logs(str(body.get("q") or ""))

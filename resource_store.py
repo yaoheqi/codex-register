@@ -190,6 +190,20 @@ def normalize_cdk_status(value: str | None) -> str:
     return value if value in CDK_STATUSES else CDK_STATUS_UNUSED
 
 
+def normalize_page(page: Any = 1, page_size: Any = 20) -> tuple[int, int]:
+    try:
+        page_number = int(page)
+    except (TypeError, ValueError):
+        page_number = 1
+    try:
+        size = int(page_size)
+    except (TypeError, ValueError):
+        size = 20
+    page_number = max(1, page_number)
+    size = min(100, max(1, size))
+    return page_number, size
+
+
 def import_legacy_sources(conn: sqlite3.Connection) -> None:
     sync_source_files(conn)
     import_cdk_file(conn, CDK_UNUSED_FILE, CDK_STATUS_UNUSED)
@@ -452,29 +466,62 @@ def record_email_status(email_record: str, **updates: Any) -> dict[str, Any]:
     return row_to_email_record(row)
 
 
-def list_emails(status_filter: str, sale_filter: str, query: str = "") -> dict[str, Any]:
+def list_emails(
+    status_filter: str,
+    sale_filter: str,
+    query: str = "",
+    page: Any = 1,
+    page_size: Any = 20,
+) -> dict[str, Any]:
     status_filter = (status_filter or EMAIL_STATUS_REGISTERED).strip().lower()
     sale_filter = (sale_filter or SALE_STATUS_UNSOLD).strip().lower()
-    if status_filter not in EMAIL_STATUSES:
-        raise ValueError("邮箱状态只能是 unregistered、registered 或 received")
+    page_number, size = normalize_page(page, page_size)
+    if status_filter not in EMAIL_STATUSES | {"marketable", "all"}:
+        raise ValueError("邮箱状态只能是 unregistered、registered、received、marketable 或 all")
     if sale_filter not in {"all", SALE_STATUS_UNSOLD, SALE_STATUS_SOLD}:
         raise ValueError("销售状态只能是 all、unsold 或 sold")
 
-    sql = ["SELECT * FROM emails WHERE register_status = ?"]
-    params: list[Any] = [status_filter]
+    where: list[str] = []
+    params: list[Any] = []
+    if status_filter == "marketable":
+        where.append("register_status IN ('registered', 'received')")
+    elif status_filter != "all":
+        where.append("register_status = ?")
+        params.append(status_filter)
     if sale_filter != "all":
-        sql.append("AND sale_status = ?")
+        where.append("sale_status = ?")
         params.append(sale_filter)
     needle = (query or "").strip().lower()
     if needle:
-        sql.append("AND (email LIKE ? OR client_id LIKE ? OR last_cdk LIKE ?)")
+        where.append("(email LIKE ? OR client_id LIKE ? OR last_cdk LIKE ?)")
         like = f"%{needle}%"
         params.extend([like, like, like])
-    sql.append("ORDER BY updated_at DESC, email ASC")
+    where_sql = " AND ".join(where) if where else "1 = 1"
+    offset = (page_number - 1) * size
     with connect() as conn:
-        rows = conn.execute(" ".join(sql), params).fetchall()
+        total_row = conn.execute(f"SELECT COUNT(*) AS total FROM emails WHERE {where_sql}", params).fetchone()
+        rows = conn.execute(
+            f"""
+            SELECT * FROM emails
+             WHERE {where_sql}
+             ORDER BY updated_at DESC, email ASC
+             LIMIT ? OFFSET ?
+            """,
+            [*params, size, offset],
+        ).fetchall()
     items = [row_to_email_record(row) for row in rows]
-    return {"status": status_filter, "sale": sale_filter, "count": len(items), "items": items}
+    total = int(total_row["total"] or 0)
+    total_pages = max(1, (total + size - 1) // size)
+    return {
+        "status": status_filter,
+        "sale": sale_filter,
+        "count": len(items),
+        "total": total,
+        "page": page_number,
+        "page_size": size,
+        "total_pages": total_pages,
+        "items": items,
+    }
 
 
 def update_email_sale(values: list[str], is_sold: bool) -> dict[str, int]:
@@ -503,6 +550,22 @@ def update_email_sale(values: list[str], is_sold: bool) -> dict[str, int]:
             )
             updated += 1
     return {"updated": updated, "skipped": skipped}
+
+
+def delete_emails(values: list[str]) -> dict[str, int]:
+    targets = {email_key(value) for value in values if email_key(value)}
+    if not targets:
+        raise ValueError("请选择要删除的邮箱")
+    removed = 0
+    skipped = 0
+    with connect() as conn:
+        for key in targets:
+            cur = conn.execute("DELETE FROM emails WHERE email = ?", (key,))
+            if cur.rowcount:
+                removed += cur.rowcount
+            else:
+                skipped += 1
+    return {"removed": removed, "skipped": skipped}
 
 
 def cdk_values(status: str) -> list[str]:
