@@ -1,0 +1,5 @@
+__pycache__/
+*.py[cod]
+
+# 运行时数据由本地 SQLite 管理，不随代码仓库推送
+data/
