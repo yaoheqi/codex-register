@@ -35,6 +35,7 @@ EMAIL_STATUS_PRIORITY = {
     EMAIL_STATUS_REGISTERED: 1,
     EMAIL_STATUS_RECEIVED: 2,
 }
+EMAIL_SOURCE_MAPPING_VERSION = "2026-06-02-email-source-files-v2"
 SALE_STATUS_UNSOLD = "unsold"
 SALE_STATUS_SOLD = "sold"
 SALE_STATUSES = {SALE_STATUS_UNSOLD, SALE_STATUS_SOLD}
@@ -114,6 +115,19 @@ def init_db() -> None:
                 ON CONFLICT(key) DO UPDATE SET value = excluded.value
                 """,
                 ("legacy_import_done", str(now_ts())),
+            )
+        source_mapping = conn.execute(
+            "SELECT value FROM metadata WHERE key = ?",
+            ("email_source_mapping_version",),
+        ).fetchone()
+        if not source_mapping or str(source_mapping["value"]) != EMAIL_SOURCE_MAPPING_VERSION:
+            sync_source_files(conn)
+            conn.execute(
+                """
+                INSERT INTO metadata (key, value) VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                ("email_source_mapping_version", EMAIL_SOURCE_MAPPING_VERSION),
             )
 
 
@@ -209,12 +223,17 @@ def normalize_cdk_status(value: str | None) -> str:
 
 
 def import_legacy_sources(conn: sqlite3.Connection) -> None:
-    import_email_file(conn, GPT_LOGIN_MAIL_FILE, EMAIL_STATUS_UNREGISTERED, respect_sections=True)
-    import_email_file(conn, EMAIL_UNUSED_FILE, EMAIL_STATUS_UNREGISTERED)
-    import_email_file(conn, EMAIL_USED_FILE, EMAIL_STATUS_REGISTERED)
-    import_email_status_json(conn)
+    sync_source_files(conn)
     import_cdk_file(conn, CDK_UNUSED_FILE, CDK_STATUS_UNUSED)
     import_cdk_file(conn, CDK_USED_FILE, CDK_STATUS_USED)
+
+
+def email_source_files() -> tuple[tuple[Path, str], ...]:
+    return (
+        (GPT_LOGIN_MAIL_FILE, EMAIL_STATUS_UNREGISTERED),
+        (EMAIL_UNUSED_FILE, EMAIL_STATUS_REGISTERED),
+        (EMAIL_USED_FILE, EMAIL_STATUS_RECEIVED),
+    )
 
 
 def import_email_file(
@@ -222,17 +241,48 @@ def import_email_file(
     path: Path,
     default_status: str,
     respect_sections: bool = False,
-) -> None:
+) -> dict[str, int]:
     section_status = default_status
+    imported = 0
+    skipped = 0
     for line in read_lines(path):
         if respect_sections:
             next_status = detect_mail_section_status(line)
             if next_status:
                 section_status = next_status
                 continue
+        if str(line or "").strip().startswith("#"):
+            continue
         account = parse_email_record(line)
         if account:
             upsert_email(conn, account, register_status=section_status)
+            imported += 1
+        else:
+            skipped += 1
+    return {"imported": imported, "skipped": skipped}
+
+
+def sync_source_files(conn: sqlite3.Connection | None = None) -> dict[str, int]:
+    if conn is None:
+        with connect() as local_conn:
+            return sync_source_files(local_conn)
+
+    summary = {
+        "emails_unregistered": 0,
+        "emails_registered": 0,
+        "emails_received": 0,
+        "emails_skipped": 0,
+    }
+    for path, status in email_source_files():
+        result = import_email_file(conn, path, status)
+        if status == EMAIL_STATUS_UNREGISTERED:
+            summary["emails_unregistered"] += result["imported"]
+        elif status == EMAIL_STATUS_REGISTERED:
+            summary["emails_registered"] += result["imported"]
+        elif status == EMAIL_STATUS_RECEIVED:
+            summary["emails_received"] += result["imported"]
+        summary["emails_skipped"] += result["skipped"]
+    return summary
 
 
 def import_email_status_json(conn: sqlite3.Connection) -> None:
@@ -430,7 +480,7 @@ def available_email_accounts(active_keys: set[str] | None = None) -> list[dict[s
                AND (reserved_at IS NULL OR reserved_at = 0)
              ORDER BY created_at ASC, email ASC
             """,
-            (EMAIL_STATUS_UNREGISTERED, SALE_STATUS_UNSOLD),
+            (EMAIL_STATUS_REGISTERED, SALE_STATUS_UNSOLD),
         ).fetchall()
     return [row_to_email_record(row) for row in rows if str(row["email"]) not in active_keys]
 
@@ -715,6 +765,9 @@ def stats(active_email_keys: set[str] | None = None, active_cdks: set[str] | Non
               SUM(CASE WHEN register_status = 'unregistered' AND sale_status = 'unsold'
                         AND reserved_at IS NULL THEN 1 ELSE 0 END) AS emails_available,
               SUM(CASE WHEN register_status = 'unregistered' AND reserved_at IS NOT NULL THEN 1 ELSE 0 END) AS emails_reserved,
+              SUM(CASE WHEN register_status = 'registered' AND sale_status = 'unsold'
+                        AND reserved_at IS NULL THEN 1 ELSE 0 END) AS emails_registered_available,
+              SUM(CASE WHEN register_status = 'registered' AND reserved_at IS NOT NULL THEN 1 ELSE 0 END) AS emails_registered_reserved,
               COUNT(*) AS emails_total
             FROM emails
             """
@@ -738,8 +791,10 @@ def stats(active_email_keys: set[str] | None = None, active_cdks: set[str] | Non
         "emails_source_total": int(row["emails_total"] or 0),
         "emails_unused": int(row["emails_unregistered"] or 0),
         "emails_used": int(row["emails_registered"] or 0) + int(row["emails_received"] or 0),
-        "emails_reserved": int(row["emails_reserved"] or 0) + len(active_email_keys),
-        "emails_available": max(0, int(row["emails_available"] or 0) - len(active_email_keys)),
+        "emails_reserved": int(row["emails_reserved"] or 0),
+        "emails_available": int(row["emails_available"] or 0),
+        "emails_registered_available": max(0, int(row["emails_registered_available"] or 0) - len(active_email_keys)),
+        "emails_registered_reserved": int(row["emails_registered_reserved"] or 0) + len(active_email_keys),
         "cdks_unused": cdks_unused,
         "cdks_used": int(cdk_row["cdks_used"] or 0),
         "cdks_reserved": len(set(cdk_values(CDK_STATUS_UNUSED)) & active_cdks),

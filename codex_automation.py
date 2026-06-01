@@ -278,11 +278,11 @@ def read_gpt_login_accounts() -> list[dict[str, str]]:
     return list(store.load_email_records().values())
 
 
-def email_status_claimed(status: dict[str, Any] | None) -> bool:
+def email_unavailable_for_automation(status: dict[str, Any] | None) -> bool:
     if not status:
         return False
     register_status = str(status.get("register_status") or "").lower()
-    return register_status != store.EMAIL_STATUS_UNREGISTERED or bool_value(status.get("is_sold"))
+    return register_status != store.EMAIL_STATUS_REGISTERED or bool_value(status.get("is_sold"))
 
 
 def active_email_keys(active_emails: set[str] | None = None) -> set[str]:
@@ -295,7 +295,7 @@ def active_email_keys(active_emails: set[str] | None = None) -> set[str]:
     return keys
 
 
-def available_gpt_login_accounts(active_emails: set[str] | None = None) -> list[dict[str, str]]:
+def available_registered_accounts(active_emails: set[str] | None = None) -> list[dict[str, str]]:
     active_raw = active_emails if active_emails is not None else active_values()[0]
     active_keys = active_email_keys(active_raw)
     accounts = store.available_email_accounts(active_keys)
@@ -626,13 +626,13 @@ def pick_unused_pair(email_value: str | None = None, cdk_value: str | None = Non
 
     if email_value:
         account = parse_email_record(email_value)
-        if email_status_claimed(statuses.get(email_key(account["email"]))):
-            raise AppError(f"邮箱已在 SQLite 状态库中：{account['email']}")
+        if email_unavailable_for_automation(statuses.get(email_key(account["email"]))):
+            raise AppError(f"邮箱不是可接码的已注册状态：{account['email']}")
         with DATA_LOCK:
-            store.add_emails([email_value], "unregistered")
+            store.add_emails([email_value], "registered")
         email_record = email_value
     else:
-        account = next(iter(available_gpt_login_accounts(active_emails)), None)
+        account = next(iter(available_registered_accounts(active_emails)), None)
         email_record = account["raw"] if account else ""
 
     if cdk_value:
@@ -641,7 +641,7 @@ def pick_unused_pair(email_value: str | None = None, cdk_value: str | None = Non
         cdk = next((item for item in cdks if item not in active_cdks), "")
 
     if not email_record:
-        raise AppError("没有可用未注册邮箱，请先写入 SQLite 邮箱池")
+        raise AppError("没有可用已注册邮箱，请先导入已注册邮箱或完成 gpt-login 注册")
     if not cdk:
         raise AppError("没有可用 CDK，请先添加未用 CDK")
     return email_record, cdk
@@ -688,14 +688,14 @@ def create_automation_batch() -> dict[str, Any]:
         with DATA_LOCK:
             cdks = store.cdk_values("unused")
         active_emails, active_cdks = active_values()
-        available_emails = [item["raw"] for item in available_gpt_login_accounts(active_emails)]
+        available_emails = [item["raw"] for item in available_registered_accounts(active_emails)]
         available_cdks = [item for item in cdks if item not in active_cdks]
         count = min(len(available_emails), len(available_cdks))
         if count <= 0:
             if not available_emails and not available_cdks:
                 raise AppError("没有可调度资源，请先写入邮箱和 CDK")
             if not available_emails:
-                raise AppError("可调度邮箱不足，请先写入未注册邮箱")
+                raise AppError("可调度邮箱不足，请先导入已注册邮箱或完成 gpt-login 注册")
             raise AppError("可调度 CDK 不足，请先添加 CDK")
 
         new_tasks = [
@@ -713,7 +713,7 @@ def create_automation_batch() -> dict[str, Any]:
     if len(available_emails) == len(available_cdks):
         stop_reason = "邮箱和 CDK 已全部配对"
     elif len(available_emails) < len(available_cdks):
-        stop_reason = "未注册邮箱不足"
+        stop_reason = "已注册邮箱不足"
     else:
         stop_reason = "CDK 不足"
 
@@ -1554,6 +1554,14 @@ def gpt_login_reset_mail_pool() -> dict[str, Any]:
         return store.mail_pool_summary()
 
 
+def gpt_login_sync_mail_pool() -> dict[str, Any]:
+    with DATA_LOCK:
+        source_sync = store.sync_source_files()
+        pool = store.mail_pool_summary()
+    pool["sourceSync"] = source_sync
+    return pool
+
+
 class AppHandler(BaseHTTPRequestHandler):
     server_version = "CodexAutomation/1.0"
 
@@ -1638,7 +1646,8 @@ class AppHandler(BaseHTTPRequestHandler):
                 self.send_json({"code": 0, "message": "邮箱占用状态已重置", "data": data})
                 return
             if path == "/api/gpt-login/mail-pool/sync":
-                self.send_json({"code": 0, "message": "SQLite 数据源已同步", "data": gpt_login_mail_pool()})
+                data = gpt_login_sync_mail_pool()
+                self.send_json({"code": 0, "message": "SQLite 数据源已同步", "data": data})
                 return
             raise AppError("接口不存在", 404)
         except Exception as exc:

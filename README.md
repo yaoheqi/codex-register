@@ -29,17 +29,17 @@ data/
   config.json
 ```
 
-邮箱和 CDK 统一写入 `resources.sqlite3`。旧文件仅在首次创建数据库时导入一次：
+邮箱和 CDK 统一写入 `resources.sqlite3`。邮箱旧文件按状态来源导入，并可通过同步接口重新并入 SQLite：
 
 ```text
-gpt-login/mail.csv
-data/emails_unused/mail.csv
-data/emails_used/mail.csv
+gpt-login/mail.csv              -> unregistered（可用未注册）
+data/emails_unused/mail.csv     -> registered（已注册）
+data/emails_used/mail.csv       -> received（已接码）
 data/cdks_unused/cdks.txt
 data/cdks_used/cdks.txt
 ```
 
-邮箱注册状态分为 `unregistered`（未注册）、`registered`（已注册）、`received`（已接码）。邮箱售出状态分为 `unsold`（未售出）和 `sold`（已售出）。CDK 状态分为 `unused`（未使用）和 `used`（已使用）。
+邮箱注册状态分为 `unregistered`（未注册）、`registered`（已注册）、`received`（已接码）。自动接码任务只消耗 `registered` 邮箱，接码成功后进入 `received`。邮箱售出状态分为 `unsold`（未售出）和 `sold`（已售出），只作用于 `received` 邮箱。CDK 状态分为 `unused`（未使用）和 `used`（已使用）。
 
 供 `gpt-login` 调用的本地接口：
 

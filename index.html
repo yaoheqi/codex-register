@@ -1734,7 +1734,7 @@
       const tasks = state.tasks || [];
       const active = tasks.find((task) => activeStatuses.has(task.status));
       const latest = tasks[0];
-      const availableEmails = Number(stats.emails_available ?? stats.emails_unused ?? 0);
+      const availableEmails = Number(stats.emails_registered_available ?? stats.emails_registered ?? 0);
       const availableCdks = Number(stats.cdks_available ?? stats.cdks_unused ?? 0);
       const hasEmail = availableEmails > 0;
       const hasCdk = availableCdks > 0;
@@ -1758,8 +1758,8 @@
         $('smartBadge').textContent = '等待资源';
         $('smartTitle').textContent = '资源不足';
         $('smartHint').textContent = !hasEmail && !hasCdk
-          ? '需要补充未注册邮箱和未使用 CDK 后才能开始。'
-          : (!hasEmail ? '未注册邮箱已用尽。' : '未使用 CDK 已用尽，请写入新的 CDK。');
+          ? '需要补充已注册邮箱和未使用 CDK 后才能开始。'
+          : (!hasEmail ? '已注册邮箱已用尽。' : '未使用 CDK 已用尽，请写入新的 CDK。');
         $('runNote').textContent = '资源池补齐后，系统会自动切换为可执行状态。';
         $('startTask').disabled = true;
         $('stepResource').classList.add('active');
@@ -1768,7 +1768,7 @@
 
       $('smartBadge').textContent = '就绪';
       $('smartTitle').textContent = latest?.status === 'completed' ? '上一轮已完成' : '可以开始';
-      $('smartHint').textContent = latest?.message || '未注册邮箱与 CDK 已就绪，可以一次性跑完整个资源池。';
+      $('smartHint').textContent = latest?.message || '已注册邮箱与 CDK 已就绪，可以一次性跑完整个资源池。';
       $('runNote').textContent = `本轮可创建 ${Math.min(availableEmails, availableCdks)} 个任务；${workerText}。`;
       $('startTask').disabled = false;
       $('stepResource').classList.add('active');
