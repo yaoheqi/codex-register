@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Codex 自动接码</title>
+  <title>Codex 本地资源管理台</title>
   <style>
     :root {
       color-scheme: light;
@@ -14,29 +14,22 @@
       --line-strong: #a8b5c6;
       --text: #111c2f;
       --muted: #64748b;
-      --muted-strong: #41516a;
       --blue: #2563eb;
       --blue-hover: #1d4ed8;
       --blue-soft: #e7f0ff;
-      --cyan: #0891b2;
       --green: #07835f;
       --green-soft: #e5f7ef;
-      --amber: #a16207;
-      --amber-soft: #fff4d8;
       --red: #c62828;
       --red-soft: #fff0f0;
-      --dark: #101827;
-      --shadow: 0 18px 42px rgba(30, 42, 62, 0.10);
+      --amber: #a16207;
+      --amber-soft: #fff4d8;
+      --shadow: 0 16px 36px rgba(30, 42, 62, 0.10);
       --shadow-soft: 0 1px 2px rgba(15, 23, 42, 0.06);
       --radius: 8px;
     }
 
     * {
       box-sizing: border-box;
-    }
-
-    html {
-      scrollbar-gutter: stable;
     }
 
     body {
@@ -47,7 +40,6 @@
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       letter-spacing: 0;
       -webkit-font-smoothing: antialiased;
-      text-rendering: optimizeLegibility;
     }
 
     button,
@@ -62,14 +54,14 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 42px;
+      min-height: 40px;
       border: 1px solid var(--line-strong);
       border-radius: var(--radius);
       background: #fff;
       color: var(--text);
-      padding: 0 16px;
+      padding: 0 14px;
       cursor: pointer;
-      font-weight: 700;
+      font-weight: 750;
       line-height: 1;
       white-space: nowrap;
       box-shadow: var(--shadow-soft);
@@ -79,7 +71,6 @@
     button:hover {
       border-color: #8796aa;
       background: var(--panel-soft);
-      box-shadow: 0 8px 18px rgba(30, 42, 62, 0.10);
     }
 
     button:disabled {
@@ -88,24 +79,27 @@
       box-shadow: none;
     }
 
-    button:focus-visible,
-    input:focus-visible,
-    select:focus-visible,
-    textarea:focus-visible {
-      outline: 3px solid rgba(37, 99, 235, 0.18);
-      outline-offset: 2px;
-    }
-
     .primary {
       border-color: var(--blue);
       background: var(--blue);
       color: #fff;
-      box-shadow: 0 12px 26px rgba(37, 99, 235, 0.22);
+      box-shadow: 0 10px 22px rgba(37, 99, 235, 0.22);
     }
 
     .primary:hover {
       border-color: var(--blue-hover);
       background: var(--blue-hover);
+    }
+
+    .danger-button {
+      border-color: #f0b9bd;
+      background: #fff5f5;
+      color: var(--red);
+    }
+
+    .danger-button:hover {
+      border-color: #e17882;
+      background: #ffecec;
     }
 
     input,
@@ -118,43 +112,22 @@
       color: var(--text);
       outline: none;
       box-shadow: var(--shadow-soft);
-      transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
 
     input,
     select {
-      height: 42px;
-      padding: 0 13px;
+      height: 40px;
+      padding: 0 12px;
       font-size: 14px;
     }
 
     textarea {
-      min-height: 132px;
+      min-height: 150px;
       resize: vertical;
-      padding: 12px 13px;
+      padding: 12px;
       line-height: 1.55;
       font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
       font-size: 12px;
-    }
-
-    input:focus,
-    select:focus,
-    textarea:focus {
-      border-color: var(--blue);
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14), var(--shadow-soft);
-    }
-
-    input::placeholder,
-    textarea::placeholder {
-      color: #8a98aa;
-    }
-
-    label {
-      display: grid;
-      gap: 7px;
-      color: var(--muted);
-      font-size: 13px;
-      font-weight: 700;
     }
 
     .page {
@@ -163,63 +136,42 @@
     }
 
     .shell {
-      width: min(1480px, 100%);
+      width: min(1440px, 100%);
       margin: 0 auto;
       display: grid;
       gap: 18px;
     }
 
-    .view-page {
-      display: none;
-      min-width: 0;
-      gap: 18px;
-    }
-
-    .view-page.active {
-      display: grid;
-    }
-
     .topbar {
-      display: grid;
-      grid-template-columns: minmax(260px, 1fr) minmax(420px, 760px);
-      gap: 22px;
-      align-items: end;
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: flex-end;
+    }
+
+    h1,
+    h2 {
+      margin: 0;
+      line-height: 1.1;
     }
 
     h1 {
-      margin: 0;
       font-size: 32px;
-      line-height: 1.1;
       font-weight: 850;
     }
 
-    .subtitle {
-      margin-top: 8px;
+    h2 {
+      font-size: 20px;
+      font-weight: 850;
+    }
+
+    .subtitle,
+    .panel-subtitle,
+    .resource-meta,
+    .small-note {
       color: var(--muted);
-      font-size: 14px;
-    }
-
-    .config {
-      display: grid;
-      grid-template-columns: minmax(220px, 1fr) 148px 116px;
-      gap: 10px;
-      align-items: end;
-    }
-
-    .config > *,
-    .resource-grid > *,
-    .run-grid > *,
-    .tasks-head > *,
-    .stats > *,
-    .metric > * {
-      min-width: 0;
-    }
-
-    .hero {
-      display: grid;
-      grid-template-columns: minmax(420px, 0.9fr) minmax(520px, 1.1fr);
-      gap: 18px;
-      align-items: stretch;
+      font-size: 13px;
+      line-height: 1.5;
     }
 
     .panel {
@@ -231,144 +183,24 @@
       overflow: hidden;
     }
 
-    .ai-panel {
-      display: grid;
-      grid-template-rows: auto 1fr;
-      background: var(--dark);
-      color: #ecf5ff;
-      position: relative;
-      isolation: isolate;
+    .panel-head,
+    .panel-body,
+    .panel-footer {
+      padding: 18px;
     }
 
-    .ai-panel::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      z-index: -1;
-      background:
-        linear-gradient(90deg, rgba(37, 99, 235, 0.28), transparent 28%),
-        linear-gradient(135deg, rgba(8, 145, 178, 0.18), transparent 40%);
-    }
-
-    .ai-panel::after {
-      content: "";
-      position: absolute;
-      left: 0;
-      right: 0;
-      top: 0;
-      height: 2px;
-      background: linear-gradient(90deg, transparent, #7dd3fc, #60a5fa, transparent);
-      animation: scan 2.6s linear infinite;
-    }
-
-    @keyframes scan {
-      0% { transform: translateX(-60%); opacity: 0.4; }
-      50% { opacity: 1; }
-      100% { transform: translateX(60%); opacity: 0.4; }
-    }
-
-    .ai-head {
+    .panel-head {
       display: flex;
       justify-content: space-between;
       gap: 14px;
-      align-items: flex-start;
-      padding: 22px 22px 12px;
-    }
-
-    .eyebrow {
-      color: #9fd5ff;
-      font-size: 12px;
-      font-weight: 800;
-      letter-spacing: 0;
-    }
-
-    .ai-title {
-      margin-top: 8px;
-      font-size: 28px;
-      line-height: 1.16;
-      font-weight: 850;
-    }
-
-    .ai-hint {
-      margin-top: 10px;
-      max-width: 520px;
-      color: #b7c7dc;
-      font-size: 14px;
-      line-height: 1.55;
-    }
-
-    .status-pill {
-      display: inline-flex;
       align-items: center;
-      min-height: 30px;
-      padding: 0 11px;
-      border: 1px solid rgba(125, 211, 252, 0.45);
-      border-radius: 999px;
-      background: rgba(15, 23, 42, 0.55);
-      color: #dff6ff;
-      font-size: 12px;
-      font-weight: 800;
-      white-space: nowrap;
-    }
-
-    .ai-body {
-      display: grid;
-      gap: 16px;
-      padding: 0 22px 22px;
-    }
-
-    .steps {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 8px;
-    }
-
-    .step {
-      border: 1px solid rgba(184, 205, 230, 0.24);
-      border-radius: var(--radius);
-      background: rgba(255, 255, 255, 0.06);
-      padding: 10px;
-      color: #cbd9ea;
-      font-size: 12px;
-      font-weight: 800;
-    }
-
-    .step b {
-      display: block;
-      margin-bottom: 5px;
-      color: #ffffff;
-      font-size: 18px;
-      line-height: 1;
-    }
-
-    .step.active {
-      border-color: rgba(125, 211, 252, 0.70);
-      background: rgba(37, 99, 235, 0.24);
-    }
-
-    .run-grid {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 12px;
-      align-items: center;
-      padding-top: 2px;
-    }
-
-    .run-note {
-      color: #aebed3;
-      font-size: 13px;
-      line-height: 1.5;
-    }
-
-    .run-grid .primary {
-      min-width: 150px;
-      min-height: 50px;
-      font-size: 16px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-soft);
     }
 
     .stats {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(6, minmax(0, 1fr));
       gap: 10px;
     }
 
@@ -378,173 +210,110 @@
       border: 1px solid var(--line);
       border-radius: var(--radius);
       background: #fff;
-      padding: 15px 16px;
-      box-shadow: var(--shadow);
-      position: relative;
-      overflow: hidden;
-    }
-
-    .metric[role="button"] {
+      padding: 14px;
       cursor: pointer;
+      box-shadow: var(--shadow-soft);
     }
 
-    .metric[role="button"]:hover {
-      border-color: #94a6bd;
-      transform: translateY(-2px);
-      box-shadow: 0 16px 34px rgba(15, 23, 42, 0.10);
+    .metric b {
+      font-size: 24px;
+      line-height: 1;
     }
-
-    .metric::before {
-      content: "";
-      position: absolute;
-      inset: 0 auto 0 0;
-      width: 4px;
-      background: var(--blue);
-    }
-
-    .metric:nth-child(2)::before {
-      background: var(--green);
-    }
-
-    .metric:nth-child(3)::before {
-      background: var(--amber);
-    }
-
-    .metric:nth-child(4)::before {
-      background: var(--muted-strong);
-    }
-
-    .metric:nth-child(5)::before {
-      background: var(--cyan);
-    }
-
-    .metric:nth-child(6)::before {
-      background: var(--red);
-    }
-
-    .metric:nth-child(7)::before {
-      background: var(--green);
-    }
-
-    .metric:nth-child(8)::before {
-      background: var(--amber);
-    }
-
-      .metric b {
-        font-size: 30px;
-        line-height: 1;
-        font-weight: 850;
-      }
 
     .metric span {
       color: var(--muted);
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 750;
     }
 
-    .resource-panel {
-      padding: 18px;
-    }
-
-    .section-title {
-      margin: 0 0 14px;
-      font-size: 18px;
-      line-height: 1.2;
-      font-weight: 800;
-    }
-
-    .resource-grid {
+    .write-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1fr);
-      gap: 12px;
-      align-items: start;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: end;
     }
 
-    .resource-action {
+    .tabs,
+    .segmented,
+    .actions,
+    .selection-actions,
+    .pager-actions {
       display: flex;
-      justify-content: flex-end;
-      margin-top: 12px;
-    }
-
-    .source-note {
-      margin: -4px 0 14px;
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.5;
-      overflow-wrap: anywhere;
-    }
-
-    .inventory-panel {
-      display: grid;
-      gap: 0;
-    }
-
-    .inventory-head {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: center;
-      padding: 18px;
-      border-bottom: 1px solid var(--line);
-      background: linear-gradient(180deg, #ffffff, #f9fbfd);
-    }
-
-    .inventory-head h2 {
-      margin: 0;
-      font-size: 18px;
-      line-height: 1.2;
-      font-weight: 800;
-    }
-
-    .inventory-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
-      gap: 18px;
-      padding: 18px;
-    }
-
-    .inventory-section {
-      min-width: 0;
-      display: grid;
-      gap: 12px;
-      align-content: start;
-    }
-
-    .inventory-title {
-      color: var(--text);
-      font-size: 15px;
-      font-weight: 850;
-    }
-
-    .segmented {
-      display: flex;
-      flex-wrap: wrap;
       gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
     }
 
-    .segment {
+    .tab,
+    .segment,
+    .small-button {
       min-height: 34px;
       padding: 0 12px;
       font-size: 13px;
       box-shadow: none;
     }
 
+    .tab.active,
     .segment.active {
       border-color: var(--blue);
       background: var(--blue-soft);
       color: var(--blue);
     }
 
+    .workspace {
+      display: none;
+    }
+
+    .workspace.active {
+      display: grid;
+      gap: 14px;
+    }
+
+    .filters {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .filter-stack {
+      display: grid;
+      gap: 8px;
+    }
+
+    .search-box {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .select-all {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+
+    .select-all input {
+      width: 16px;
+      height: 16px;
+      box-shadow: none;
+    }
+
     .resource-list {
       display: grid;
       gap: 10px;
-      max-height: 430px;
+      max-height: 560px;
       overflow: auto;
     }
 
     .resource-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: auto minmax(0, 1fr) auto;
       gap: 12px;
       align-items: center;
       padding: 12px;
@@ -552,6 +321,11 @@
       border-radius: var(--radius);
       background: #fff;
       box-shadow: var(--shadow-soft);
+    }
+
+    .resource-row.is-selected {
+      border-color: rgba(37, 99, 235, 0.45);
+      background: #f7fbff;
     }
 
     .resource-main {
@@ -567,11 +341,11 @@
       overflow-wrap: anywhere;
     }
 
-    .resource-meta {
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.45;
-      overflow-wrap: anywhere;
+    .resource-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
     }
 
     .copy-button {
@@ -592,91 +366,9 @@
     }
 
     .copy-button:hover {
-      border-color: transparent;
-      background: transparent;
       color: var(--blue);
-      box-shadow: none;
       text-decoration: underline;
-      transform: none;
-    }
-
-    .copy-button:focus-visible {
-      outline: 2px solid rgba(37, 99, 235, 0.35);
-      outline-offset: 2px;
-    }
-
-    .resource-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .small-button {
-      min-height: 34px;
-      padding: 0 11px;
-      font-size: 12px;
-      box-shadow: none;
-    }
-
-    .task-panel {
-      display: grid;
-      gap: 0;
-    }
-
-    .tasks-head {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: center;
-      padding: 18px;
-      border-bottom: 1px solid var(--line);
-      background: linear-gradient(180deg, #ffffff, #f9fbfd);
-    }
-
-    .tasks-head h2 {
-      margin: 0;
-      font-size: 18px;
-      line-height: 1.2;
-      font-weight: 800;
-    }
-
-    .task-list {
-      display: grid;
-      gap: 12px;
-      max-height: min(58vh, 660px);
-      overflow: auto;
-      padding: 18px;
-    }
-
-    .task {
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      background: #fff;
-      padding: 15px;
-      box-shadow: var(--shadow-soft);
-    }
-
-    .task-top {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: flex-start;
-    }
-
-    .task-email {
-      color: var(--text);
-      font-size: 16px;
-      font-weight: 800;
-      overflow-wrap: anywhere;
-    }
-
-    .task-sub {
-      margin-top: 5px;
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.5;
-      overflow-wrap: anywhere;
+      background: transparent;
     }
 
     .badge {
@@ -687,7 +379,7 @@
       border: 1px solid var(--line);
       border-radius: 999px;
       background: var(--panel-soft);
-      color: var(--muted-strong);
+      color: var(--muted);
       font-size: 12px;
       font-weight: 800;
       white-space: nowrap;
@@ -705,982 +397,10 @@
       color: var(--red);
     }
 
-    .badge.running,
-    .badge.in_progress,
-    .badge.waiting_email_otp,
-    .badge.email_code_found,
-    .badge.starting,
-    .badge.queued {
+    .badge.in_progress {
       border-color: #ecc67d;
       background: var(--amber-soft);
       color: var(--amber);
-    }
-
-    .progress {
-      height: 8px;
-      margin: 13px 0 11px;
-      border-radius: 999px;
-      background: #e8eef5;
-      overflow: hidden;
-    }
-
-    .progress span {
-      display: block;
-      height: 100%;
-      width: var(--value, 0%);
-      border-radius: inherit;
-      background: linear-gradient(90deg, var(--blue), var(--cyan));
-      transition: width 0.25s ease;
-    }
-
-    .task.completed .progress span {
-      background: linear-gradient(90deg, #10b981, #059669);
-    }
-
-    .task.failed .progress span {
-      background: linear-gradient(90deg, #ef4444, #c62828);
-    }
-
-    .task-message {
-      color: var(--muted-strong);
-      font-size: 13px;
-      line-height: 1.55;
-      overflow-wrap: anywhere;
-    }
-
-    .code-info {
-      margin-top: 8px;
-      color: var(--green);
-      font-size: 13px;
-      line-height: 1.55;
-      overflow-wrap: anywhere;
-    }
-
-    .logs {
-      margin-top: 11px;
-      padding-top: 10px;
-      border-top: 1px solid var(--line);
-      color: var(--muted-strong);
-      font-size: 12px;
-      line-height: 1.55;
-    }
-
-    .log-line {
-      display: grid;
-      grid-template-columns: 132px minmax(0, 1fr);
-      gap: 10px;
-      padding: 2px 0;
-      border-bottom: 1px dashed #edf1f5;
-    }
-
-    .log-line:last-child {
-      border-bottom: 0;
-    }
-
-    .log-time {
-      color: #7c8da3;
-      font-variant-numeric: tabular-nums;
-      white-space: nowrap;
-    }
-
-    .log-message {
-      overflow-wrap: anywhere;
-    }
-
-    .empty {
-      padding: 34px 18px;
-      border: 1px dashed var(--line-strong);
-      border-radius: var(--radius);
-      background: var(--panel-soft);
-      color: var(--muted);
-      text-align: center;
-      font-size: 14px;
-    }
-
-    .toast {
-      position: fixed;
-      right: 22px;
-      bottom: 22px;
-      max-width: min(440px, calc(100vw - 36px));
-      padding: 12px 14px;
-      border-radius: var(--radius);
-      background: #172033;
-      color: #fff;
-      box-shadow: var(--shadow);
-      opacity: 0;
-      transform: translateY(8px);
-      pointer-events: none;
-      transition: 0.18s ease;
-      font-size: 13px;
-      overflow-wrap: anywhere;
-    }
-
-    .toast.show {
-      opacity: 1;
-      transform: translateY(0);
-    }
-
-    @media (max-width: 1180px) {
-      .topbar,
-      .hero,
-      .inventory-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .stats {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
-      .mail-pool-summary {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-    }
-
-    @media (max-width: 720px) {
-      .page {
-        padding: 14px;
-      }
-
-      h1 {
-        font-size: 26px;
-      }
-
-      .config,
-      .resource-grid,
-      .run-grid,
-      .resource-row {
-        grid-template-columns: 1fr;
-      }
-
-      .steps {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
-      .ai-head {
-        flex-direction: column;
-      }
-
-      .ai-title {
-        font-size: 26px;
-      }
-
-      .status-pill {
-        align-self: flex-start;
-      }
-
-      .tasks-head {
-        align-items: stretch;
-        flex-direction: column;
-      }
-
-      .task-top {
-        flex-direction: column;
-      }
-
-      .log-line {
-        grid-template-columns: 1fr;
-        gap: 2px;
-      }
-    }
-
-    @media (max-width: 480px) {
-      .stats {
-        grid-template-columns: 1fr;
-      }
-
-      .steps {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    /* 2026 workstation refresh */
-    :root {
-      --bg: #f4f7fb;
-      --surface: #ffffff;
-      --surface-2: #f8fafc;
-      --ink: #0f172a;
-      --ink-soft: #334155;
-      --muted: #64748b;
-      --line: #dbe3ee;
-      --line-strong: #b8c5d6;
-      --blue: #2f6df6;
-      --blue-hover: #1f56d8;
-      --green: #0f9f78;
-      --cyan: #0f8caf;
-      --amber: #b7791f;
-      --red: #d92d3b;
-      --violet: #6d5dfc;
-      --dark: #101827;
-      --radius: 8px;
-      --shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
-      --shadow-soft: 0 1px 2px rgba(15, 23, 42, 0.06);
-    }
-
-    body {
-      background:
-        linear-gradient(180deg, #eef4fb 0, #f7f9fc 360px, #f4f7fb 100%);
-      color: var(--ink);
-    }
-
-    .page {
-      padding: 22px clamp(18px, 3vw, 42px) 42px;
-    }
-
-    .shell {
-      width: min(1600px, 100%);
-      gap: 20px;
-    }
-
-    .topbar {
-      position: sticky;
-      top: 0;
-      z-index: 20;
-      grid-template-columns: minmax(300px, 0.85fr) minmax(520px, 1.15fr);
-      align-items: center;
-      padding: 16px 0 14px;
-      background: linear-gradient(180deg, rgba(244, 247, 251, 0.96), rgba(244, 247, 251, 0.86));
-      backdrop-filter: blur(14px);
-    }
-
-    h1 {
-      font-size: clamp(30px, 3vw, 46px);
-      letter-spacing: 0;
-    }
-
-    .subtitle {
-      margin-top: 7px;
-      color: #5b6f8a;
-      font-size: 15px;
-      font-weight: 650;
-    }
-
-    .config {
-      grid-template-columns: minmax(280px, 1fr) 150px 112px;
-      gap: 12px;
-      padding: 12px;
-      border: 1px solid rgba(184, 197, 214, 0.75);
-      border-radius: 12px;
-      background: rgba(255, 255, 255, 0.72);
-      box-shadow: var(--shadow-soft);
-    }
-
-    label {
-      gap: 8px;
-      color: var(--ink-soft);
-      font-size: 12px;
-      text-transform: none;
-    }
-
-    input,
-    select,
-    textarea {
-      border-color: var(--line);
-      border-radius: 10px;
-      box-shadow: none;
-    }
-
-    input,
-    select {
-      height: 46px;
-      font-weight: 700;
-    }
-
-    textarea {
-      min-height: 120px;
-      background: #fbfdff;
-      font-size: 12px;
-    }
-
-    button {
-      min-height: 44px;
-      border-radius: 10px;
-      box-shadow: none;
-    }
-
-    button:hover {
-      transform: translateY(-1px);
-    }
-
-    .primary {
-      border-color: var(--blue);
-      background: var(--blue);
-      box-shadow: 0 13px 24px rgba(47, 109, 246, 0.20);
-    }
-
-    .primary:hover {
-      border-color: var(--blue-hover);
-      background: var(--blue-hover);
-    }
-
-    .hero {
-      grid-template-columns: minmax(500px, 1.08fr) minmax(420px, 0.92fr);
-      align-items: stretch;
-    }
-
-    .panel {
-      border-color: rgba(184, 197, 214, 0.78);
-      border-radius: 14px;
-      box-shadow: var(--shadow);
-    }
-
-    .ai-panel {
-      min-height: 360px;
-      border-color: #1f3555;
-      background:
-        linear-gradient(135deg, rgba(47, 109, 246, 0.20), transparent 38%),
-        linear-gradient(180deg, #111d31, #0d1525);
-      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
-    }
-
-    .ai-panel::before {
-      background:
-        linear-gradient(90deg, rgba(15, 140, 175, 0.22), transparent 30%),
-        repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 42px);
-    }
-
-    .ai-panel::after {
-      display: none;
-    }
-
-    .ai-head {
-      padding: 26px 28px 16px;
-    }
-
-    .eyebrow {
-      color: #8bd3ff;
-      font-size: 12px;
-      letter-spacing: 0.06em;
-    }
-
-    .ai-title {
-      max-width: 680px;
-      font-size: clamp(34px, 4vw, 58px);
-      line-height: 1.02;
-      letter-spacing: 0;
-    }
-
-    .ai-hint {
-      max-width: 760px;
-      color: #bdd0e7;
-      font-size: 15px;
-    }
-
-    .status-pill {
-      min-height: 34px;
-      border-color: rgba(139, 211, 255, 0.42);
-      background: rgba(255, 255, 255, 0.08);
-      color: #e8f6ff;
-    }
-
-    .ai-body {
-      gap: 18px;
-      padding: 0 28px 28px;
-    }
-
-    .steps {
-      gap: 10px;
-    }
-
-    .step {
-      min-height: 78px;
-      border-color: rgba(184, 205, 230, 0.20);
-      background: rgba(255, 255, 255, 0.055);
-      color: #c9d7e8;
-      display: grid;
-      align-content: center;
-    }
-
-    .step b {
-      color: #88cfff;
-      font-size: 20px;
-    }
-
-    .step.active {
-      border-color: rgba(110, 184, 255, 0.85);
-      background: rgba(47, 109, 246, 0.24);
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-    }
-
-    .run-grid {
-      grid-template-columns: minmax(0, 1fr) auto;
-      align-items: end;
-      margin-top: auto;
-    }
-
-    .run-note {
-      color: #b8c9de;
-      font-size: 14px;
-    }
-
-    .run-grid .primary {
-      min-width: 190px;
-      min-height: 56px;
-      border-radius: 12px;
-      font-size: 16px;
-    }
-
-    .stats {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-    }
-
-    .metric {
-      min-height: 104px;
-      border-color: rgba(184, 197, 214, 0.78);
-      border-radius: 14px;
-      padding: 18px 18px 16px;
-      box-shadow: var(--shadow-soft);
-    }
-
-    .metric:nth-child(7) {
-      grid-column: 1 / -1;
-    }
-
-    .metric::before {
-      width: 100%;
-      height: 4px;
-      inset: 0 0 auto;
-    }
-
-    .metric b {
-      font-size: 38px;
-      letter-spacing: -0.02em;
-    }
-
-    .metric span {
-      color: #51657f;
-      font-size: 13px;
-    }
-
-    .resource-panel {
-      padding: 0;
-    }
-
-    .resource-head {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 16px;
-      padding: 20px 22px 16px;
-      border-bottom: 1px solid var(--line);
-      background: linear-gradient(180deg, #fff, #fbfdff);
-    }
-
-    .resource-head .section-title {
-      margin: 0;
-    }
-
-    .resource-head .source-note {
-      margin: 7px 0 0;
-      font-size: 12px;
-    }
-
-    .resource-chip {
-      display: inline-flex;
-      align-items: center;
-      min-height: 32px;
-      padding: 0 11px;
-      border: 1px solid #bee4d7;
-      border-radius: 999px;
-      background: #ecfbf6;
-      color: var(--green);
-      font-size: 12px;
-      font-weight: 850;
-      white-space: nowrap;
-    }
-
-    .resource-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 14px;
-      padding: 22px 22px 0;
-    }
-
-    .resource-action {
-      justify-content: flex-end;
-      align-items: center;
-      margin-top: 0;
-      padding: 16px 22px 22px;
-    }
-
-    .resource-action::before {
-      content: none;
-    }
-
-    .resource-action .primary {
-      min-width: 132px;
-    }
-
-    .inventory-head,
-    .tasks-head {
-      padding: 20px 24px;
-      background: linear-gradient(180deg, #fff, #fbfdff);
-    }
-
-    .inventory-head h2,
-    .tasks-head h2,
-    .section-title {
-      font-size: 20px;
-      letter-spacing: 0;
-    }
-
-    .inventory-grid {
-      grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
-      gap: 22px;
-      padding: 22px 24px 26px;
-    }
-
-    .inventory-section {
-      gap: 14px;
-    }
-
-    .inventory-title {
-      font-size: 16px;
-    }
-
-    .segmented {
-      padding: 4px;
-      gap: 4px;
-      width: max-content;
-      max-width: 100%;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: #f3f6fa;
-    }
-
-    .segment {
-      min-height: 34px;
-      border: 0;
-      border-radius: 8px;
-      background: transparent;
-      color: #52657f;
-      padding: 0 13px;
-    }
-
-    .segment:hover {
-      background: rgba(255, 255, 255, 0.82);
-      transform: none;
-      box-shadow: none;
-    }
-
-    .segment.active {
-      background: #ffffff;
-      color: var(--blue);
-      box-shadow: 0 7px 18px rgba(15, 23, 42, 0.08);
-    }
-
-    .resource-list {
-      gap: 10px;
-      max-height: 520px;
-      padding-right: 4px;
-      scrollbar-width: thin;
-    }
-
-    .resource-row {
-      border-color: rgba(184, 197, 214, 0.72);
-      border-radius: 12px;
-      padding: 14px 16px;
-      background: linear-gradient(180deg, #fff, #fbfdff);
-      box-shadow: var(--shadow-soft);
-    }
-
-    .resource-row:hover {
-      border-color: #9fb0c7;
-      box-shadow: 0 12px 24px rgba(15, 23, 42, 0.07);
-    }
-
-    .resource-name {
-      font-size: 15px;
-    }
-
-    .resource-meta {
-      color: #62748d;
-      font-size: 12px;
-    }
-
-    .small-button {
-      min-height: 36px;
-      border-radius: 9px;
-    }
-
-    .task-list {
-      max-height: none;
-      padding: 22px 24px 26px;
-    }
-
-    .workspace-panel {
-      display: grid;
-      overflow: hidden;
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(249, 252, 255, 0.98));
-    }
-
-    .workspace-head {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 18px;
-      align-items: center;
-      padding: 22px 24px;
-      border-bottom: 1px solid var(--line);
-      background:
-        linear-gradient(180deg, #ffffff, #f8fbff);
-    }
-
-    .workspace-title {
-      display: grid;
-      gap: 6px;
-      min-width: 0;
-    }
-
-    .workspace-title h2 {
-      margin: 0;
-      font-size: 21px;
-      line-height: 1.2;
-      font-weight: 850;
-      color: var(--ink);
-    }
-
-    .workspace-title p {
-      margin: 0;
-      color: #60738c;
-      font-size: 13px;
-      line-height: 1.45;
-      overflow-wrap: anywhere;
-    }
-
-    .workspace-tabs,
-    .inventory-kind-tabs {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 4px;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: #edf3f9;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
-    }
-
-    .workspace-tab {
-      min-height: 38px;
-      border: 0;
-      border-radius: 8px;
-      background: transparent;
-      color: #52657f;
-      padding: 0 16px;
-      box-shadow: none;
-      font-size: 14px;
-      font-weight: 850;
-    }
-
-    .workspace-tab:hover {
-      background: rgba(255, 255, 255, 0.78);
-      box-shadow: none;
-      transform: none;
-    }
-
-    .workspace-tab.active {
-      background: #ffffff;
-      color: var(--blue);
-      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
-    }
-
-    .workspace-view {
-      display: none;
-      padding: 24px;
-    }
-
-    .workspace-view.active {
-      display: grid;
-      gap: 22px;
-    }
-
-    .write-layout {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 18px;
-      align-items: stretch;
-    }
-
-    .write-field {
-      min-width: 0;
-      display: grid;
-      gap: 10px;
-      align-content: start;
-      padding: 18px;
-      border: 1px solid rgba(184, 197, 214, 0.72);
-      border-radius: 10px;
-      background: #fbfdff;
-    }
-
-    .write-field span {
-      color: var(--ink);
-      font-size: 16px;
-      line-height: 1.2;
-      font-weight: 850;
-    }
-
-    .write-field small {
-      color: #667990;
-      font-size: 12px;
-      line-height: 1.45;
-      font-weight: 650;
-    }
-
-    .write-field textarea {
-      min-height: 178px;
-      border-color: #cfd9e7;
-      background: #ffffff;
-    }
-
-    .workspace-footer {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 16px;
-      padding-top: 2px;
-    }
-
-    .workspace-footnote {
-      color: #60738c;
-      font-size: 13px;
-      line-height: 1.5;
-    }
-
-    .workspace-footer .primary {
-      min-width: 132px;
-    }
-
-    .inventory-toolbar {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 18px;
-      align-items: center;
-    }
-
-    .inventory-actions {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      justify-content: flex-end;
-      flex-wrap: wrap;
-    }
-
-    .selection-actions {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      justify-content: flex-end;
-      flex-wrap: wrap;
-    }
-
-    .select-all {
-      display: inline-flex;
-      gap: 8px;
-      align-items: center;
-      min-height: 38px;
-      padding: 0 11px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: #ffffff;
-      color: #52657f;
-      font-size: 13px;
-      font-weight: 850;
-      box-shadow: var(--shadow-soft);
-      cursor: pointer;
-    }
-
-    input[type="checkbox"] {
-      width: 18px;
-      height: 18px;
-      min-width: 18px;
-      padding: 0;
-      border-radius: 5px;
-      box-shadow: none;
-      accent-color: var(--blue);
-      cursor: pointer;
-    }
-
-    input[type="checkbox"]:disabled {
-      cursor: not-allowed;
-    }
-
-    .selection-count {
-      min-height: 38px;
-      display: inline-flex;
-      align-items: center;
-      padding: 0 10px;
-      color: #60738c;
-      font-size: 13px;
-      font-weight: 800;
-    }
-
-    .status-select {
-      width: auto;
-      min-width: 112px;
-      height: 36px;
-      padding: 0 10px;
-      font-size: 12px;
-      font-weight: 800;
-    }
-
-    .selection-actions .status-select {
-      height: 38px;
-    }
-
-    .search-box {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-width: min(420px, 100%);
-    }
-
-    .search-box input {
-      min-width: 220px;
-      height: 38px;
-      font-size: 13px;
-      font-weight: 750;
-      background: #ffffff;
-    }
-
-    .search-box .small-button {
-      min-height: 38px;
-    }
-
-    .inventory-pane {
-      display: none;
-      gap: 16px;
-      min-width: 0;
-    }
-
-    .inventory-pane.active {
-      display: grid;
-    }
-
-    .inventory-controls {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      flex-wrap: wrap;
-      padding: 16px;
-      border: 1px solid rgba(184, 197, 214, 0.72);
-      border-radius: 10px;
-      background: #fbfdff;
-    }
-
-    .filter-stack {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-
-    .inventory-summary {
-      color: #60738c;
-      font-size: 13px;
-      font-weight: 750;
-    }
-
-    .inventory-pane .resource-list {
-      max-height: min(58vh, 620px);
-      padding: 4px 4px 4px 0;
-    }
-
-    .mail-pool-summary {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(120px, 1fr));
-      gap: 10px;
-      width: 100%;
-    }
-
-    .mail-pool-stat {
-      display: grid;
-      gap: 4px;
-      min-height: 64px;
-      padding: 12px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: #ffffff;
-    }
-
-    .mail-pool-stat b {
-      color: var(--ink);
-      font-size: 22px;
-      line-height: 1;
-      font-weight: 850;
-    }
-
-    .mail-pool-stat span {
-      color: #60738c;
-      font-size: 12px;
-      font-weight: 800;
-    }
-
-    .email-row,
-    .cdk-row,
-    .mail-pool-row {
-      grid-template-columns: auto minmax(0, 1fr) auto;
-    }
-
-    .email-row.is-selected,
-    .cdk-row.is-selected {
-      border-color: rgba(47, 109, 246, 0.52);
-      background: linear-gradient(180deg, #ffffff, #f5f8ff);
-      box-shadow: 0 12px 26px rgba(47, 109, 246, 0.10);
-    }
-
-    .select-cell {
-      display: flex;
-      align-items: flex-start;
-      padding-top: 3px;
-    }
-
-    .resource-detail-panel {
-      display: grid;
-      overflow: hidden;
-    }
-
-    .resource-detail-head {
-      display: grid;
-      grid-template-columns: auto minmax(0, 1fr) auto;
-      gap: 16px;
-      align-items: center;
-      padding: 22px 24px;
-      border-bottom: 1px solid var(--line);
-      background: linear-gradient(180deg, #ffffff, #f8fbff);
-    }
-
-    .resource-detail-actions {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      justify-content: flex-end;
-      flex-wrap: wrap;
-    }
-
-    .resource-detail-body {
-      display: grid;
-      padding: 24px;
-    }
-
-    .resource-page-title {
-      min-width: 0;
-      display: grid;
-      gap: 5px;
-    }
-
-    .resource-page-title h2 {
-      margin: 0;
-      color: var(--ink);
-      font-size: 24px;
-      line-height: 1.18;
-      font-weight: 850;
-    }
-
-    .resource-page-title p {
-      margin: 0;
-      color: #60738c;
-      font-size: 13px;
-      line-height: 1.45;
     }
 
     .pager {
@@ -1694,176 +414,96 @@
       font-weight: 750;
     }
 
-    .pager-actions {
-      display: flex;
+    .mail-pool-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 8px;
-      align-items: center;
-      flex-wrap: wrap;
-      justify-content: flex-end;
     }
 
-    .pager select {
-      width: auto;
-      min-width: 92px;
-      height: 36px;
-      font-size: 13px;
+    .mail-pool-stat {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel-soft);
+      padding: 10px;
+    }
+
+    .mail-pool-stat b {
+      display: block;
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .mail-pool-stat span {
+      color: var(--muted);
+      font-size: 12px;
       font-weight: 750;
     }
 
-    .danger-button {
-      border-color: #f0b9bd;
-      background: #fff5f5;
-      color: var(--red);
-    }
-
-    .danger-button:hover {
-      border-color: #e17882;
-      background: #ffecec;
-    }
-
-    .task {
-      border-radius: 12px;
-      padding: 16px;
-      background: linear-gradient(180deg, #fff, #fbfdff);
-    }
-
     .empty {
-      min-height: 112px;
+      min-height: 100px;
       display: grid;
       place-items: center;
-      border-color: #bfd0e3;
-      border-radius: 12px;
-      background: #f8fbff;
-      color: #6d7f99;
-      font-size: 15px;
+      border: 1px dashed var(--line-strong);
+      border-radius: var(--radius);
+      color: var(--muted);
+      background: var(--panel-soft);
+      font-weight: 750;
     }
 
     .toast {
-      border-radius: 12px;
-      background: #0f172a;
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      z-index: 20;
+      max-width: min(420px, calc(100vw - 32px));
+      border-radius: var(--radius);
+      background: #101827;
+      color: #fff;
+      padding: 12px 14px;
+      font-size: 13px;
+      font-weight: 750;
+      opacity: 0;
+      transform: translateY(10px);
+      pointer-events: none;
+      transition: 0.18s ease;
     }
 
-    @media (min-width: 1380px) {
-      .stats {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-      }
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
     }
 
-    @media (max-width: 1180px) {
-      .topbar,
-      .hero,
-      .inventory-grid,
-      .workspace-head,
-      .resource-detail-head,
-      .inventory-toolbar,
-      .write-layout {
-        grid-template-columns: 1fr;
-      }
-
-      .topbar {
-        position: static;
-      }
-
-      .stats {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-      }
-    }
-
-    @media (max-width: 760px) {
-      .config,
-      .resource-grid,
-      .run-grid,
-      .resource-row,
-      .write-layout,
-      .inventory-toolbar {
-        grid-template-columns: 1fr;
-      }
-
-      .stats {
+    @media (max-width: 1000px) {
+      .stats,
+      .mail-pool-summary {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
-      .resource-action {
-        display: grid;
-        gap: 12px;
-        justify-content: stretch;
-      }
-
-      .resource-action .primary {
-        width: 100%;
-      }
-
-      .segmented {
-        width: 100%;
-      }
-
-      .workspace-head,
-      .workspace-view,
-      .inventory-controls,
-      .workspace-footer {
-        align-items: stretch;
-      }
-
-      .workspace-tabs,
-      .inventory-kind-tabs,
-      .filter-stack,
-      .inventory-actions,
-      .selection-actions,
-      .mail-pool-summary,
-      .resource-detail-actions,
-      .workspace-footer {
-        width: 100%;
-      }
-
-      .workspace-tab,
-      .inventory-actions > button,
-      .selection-actions > button,
-      .resource-detail-actions > button,
-      .workspace-footer .primary {
-        flex: 1;
-      }
-
-      .search-box {
-        width: 100%;
-      }
-
-      .search-box input {
-        min-width: 0;
-        flex: 1;
-      }
-
-      .workspace-footer {
-        display: grid;
-      }
-
-      .segment {
-        flex: 1;
+      .filters,
+      .write-grid,
+      .resource-row {
+        grid-template-columns: 1fr;
       }
     }
 
-    @media (max-width: 520px) {
+    @media (max-width: 720px) {
       .page {
-        padding: 12px;
+        padding: 14px;
       }
 
-      .stats,
-      .steps,
-      .mail-pool-summary {
+      .topbar,
+      .panel-head,
+      .pager {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      h1 {
+        font-size: 26px;
+      }
+
+      .search-box {
         grid-template-columns: 1fr;
-      }
-
-      .ai-head,
-      .ai-body,
-      .inventory-head,
-      .workspace-head,
-      .workspace-view,
-      .resource-detail-head,
-      .resource-detail-body,
-      .tasks-head,
-      .inventory-grid,
-      .task-list {
-        padding-left: 16px;
-        padding-right: 16px;
       }
     }
   </style>
@@ -1873,215 +513,136 @@
     <div class="shell">
       <header class="topbar">
         <div>
-          <h1>Codex 自动接码</h1>
-          <div class="subtitle">AI 自动编排邮箱、CDK、验证码与远端状态</div>
+          <h1>Codex 本地资源管理台</h1>
+          <div class="subtitle">本地管理邮箱资源、GPT 登录池与 Codex 凭据</div>
         </div>
-        <div class="config">
-          <label>Codex API
-            <input id="baseUrl" autocomplete="off" placeholder="https://www.hansaes.icu/">
-          </label>
-          <label>模式
-            <select id="apiMode">
-              <option value="legacy">legacy</option>
-              <option value="v1">v1</option>
-              <option value="auto">auto</option>
-            </select>
-          </label>
-          <button id="saveConfig" class="primary">保存</button>
-        </div>
+        <button id="refreshAll" class="primary" type="button">刷新全部</button>
       </header>
 
-      <main id="dashboardPage" class="view-page active">
-      <div class="hero">
-        <section class="panel ai-panel">
-          <div class="ai-head">
-            <div>
-              <div class="eyebrow">AI 运行中枢</div>
-              <div id="smartTitle" class="ai-title">正在读取状态</div>
-              <div id="smartHint" class="ai-hint">系统会根据资源池和任务队列自动判断下一步动作。</div>
-            </div>
-            <div id="smartBadge" class="status-pill">扫描中</div>
-          </div>
-          <div class="ai-body">
-            <div class="steps">
-              <div id="stepResource" class="step"><b>01</b>资源校验</div>
-              <div id="stepSubmit" class="step"><b>02</b>提交任务</div>
-              <div id="stepOtp" class="step"><b>03</b>接收验证码</div>
-              <div id="stepRemote" class="step"><b>04</b>远端确认</div>
-            </div>
-            <div class="run-grid">
-              <div id="runNote" class="run-note">等待资源池状态同步。</div>
-              <button id="startTask" class="primary">跑完整个资源池</button>
-            </div>
-          </div>
-        </section>
+      <section class="stats" aria-label="资源统计">
+        <div class="metric" role="button" tabindex="0" data-open-email data-email-status="unregistered" data-email-sale="unsold"><b id="statEmailsAvailable">0</b><span>可用未注册</span></div>
+        <div class="metric" role="button" tabindex="0" data-open-email data-email-status="registered" data-email-sale="all"><b id="statEmailsRegistered">0</b><span>已注册邮箱</span></div>
+        <div class="metric" role="button" tabindex="0" data-open-email data-email-status="received" data-email-sale="all"><b id="statEmailsReceived">0</b><span>已接码邮箱</span></div>
+        <div class="metric" role="button" tabindex="0" data-open-email data-email-status="failed" data-email-sale="all"><b id="statEmailsFailed">0</b><span>失败邮箱</span></div>
+        <div class="metric" role="button" tabindex="0" data-open-email data-email-status="marketable" data-email-sale="unsold"><b id="statEmailsUnsold">0</b><span>未售出邮箱</span></div>
+        <div class="metric" role="button" tabindex="0" data-open-email data-email-status="marketable" data-email-sale="sold"><b id="statEmailsSold">0</b><span>已售出邮箱</span></div>
+      </section>
 
-        <section class="stats">
-          <div class="metric" role="button" tabindex="0" data-open-resource data-resource-kind="email" data-email-status="unregistered" data-email-sale="unsold"><b id="statEmailsAvailable">0</b><span>可用未注册</span></div>
-          <div class="metric" role="button" tabindex="0" data-open-resource data-resource-kind="email" data-email-status="registered" data-email-sale="all"><b id="statEmailsRegistered">0</b><span>已注册邮箱</span></div>
-          <div class="metric" role="button" tabindex="0" data-open-resource data-resource-kind="email" data-email-status="received" data-email-sale="all"><b id="statEmailsReceived">0</b><span>已接码邮箱</span></div>
-          <div class="metric" role="button" tabindex="0" data-open-resource data-resource-kind="email" data-email-status="failed" data-email-sale="all"><b id="statEmailsFailed">0</b><span>失败邮箱</span></div>
-          <div class="metric" role="button" tabindex="0" data-open-resource data-resource-kind="email" data-email-status="marketable" data-email-sale="unsold"><b id="statEmailsUnsold">0</b><span>未售出邮箱</span></div>
-          <div class="metric" role="button" tabindex="0" data-open-resource data-resource-kind="email" data-email-status="marketable" data-email-sale="sold"><b id="statEmailsSold">0</b><span>已售出邮箱</span></div>
-          <div class="metric" role="button" tabindex="0" data-open-resource data-resource-kind="cdk" data-cdk-bucket="unused"><b id="statCdksUnused">0</b><span>未使用 CDK</span></div>
-          <div class="metric" role="button" tabindex="0" data-open-resource data-resource-kind="cdk" data-cdk-bucket="used"><b id="statCdksUsed">0</b><span>已使用 CDK</span></div>
-        </section>
-      </div>
-
-      <section class="panel workspace-panel">
-        <div class="workspace-head">
-          <div class="workspace-title">
-            <h2>资源写入</h2>
-            <p>SQLite 数据源 · codex-register/data/resources.sqlite3</p>
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>邮箱写入</h2>
+            <div class="panel-subtitle">SQLite 数据源 · codex-register/data/resources.sqlite3</div>
           </div>
         </div>
-
-        <div class="workspace-view active" data-workspace-panel="write">
-          <div class="write-layout">
-            <label class="write-field"><span>邮箱</span>
-              <small>email----password----client_id----refresh_token</small>
+        <div class="panel-body">
+          <div class="write-grid">
+            <label>
+              <span class="small-note">邮箱格式：email----password----client_id----refresh_token</span>
               <textarea id="emailText" spellcheck="false" placeholder="一行一个邮箱账号"></textarea>
             </label>
-            <label class="write-field"><span>CDK</span>
-              <small>一行一个 CDK</small>
-              <textarea id="cdkText" spellcheck="false" placeholder="一行一个 CDK"></textarea>
-            </label>
-          </div>
-          <div class="workspace-footer">
-            <div class="workspace-footnote">SQLite 资源池</div>
-            <button id="addResources" class="primary">写入资源</button>
+            <button id="addEmails" class="primary" type="button">写入邮箱</button>
           </div>
         </div>
       </section>
 
-      <section class="panel task-panel">
-        <div class="tasks-head">
-          <h2>任务流</h2>
-          <button id="refreshTasks">刷新</button>
-        </div>
-        <div id="taskList" class="task-list"></div>
-      </section>
-      </main>
-
-      <main id="resourcePage" class="view-page">
-        <section class="panel resource-detail-panel">
-          <div class="resource-detail-head">
-            <button id="backDashboard" type="button">返回</button>
-            <div class="resource-page-title">
-              <h2>资源查看</h2>
-              <p>点击统计卡片进入；支持分页、导出、售卖状态和删除。</p>
-            </div>
-            <div class="resource-detail-actions">
-              <div class="inventory-kind-tabs" id="inventoryKindTabs" role="tablist" aria-label="资源类型">
-                <button class="workspace-tab active" type="button" data-inventory-kind="email">邮箱</button>
-                <button class="workspace-tab" type="button" data-inventory-kind="cdk">CDK</button>
-                <button class="workspace-tab" type="button" data-inventory-kind="gpt-login">GPT 登录池</button>
-              </div>
-              <button id="refreshInventory">刷新</button>
-            </div>
+      <section class="panel">
+        <div class="panel-head">
+          <div class="tabs" role="tablist" aria-label="资源类型">
+            <button class="tab active" type="button" data-workspace-tab="emails">邮箱</button>
+            <button class="tab" type="button" data-workspace-tab="mail-pool">GPT 登录池</button>
+            <button class="tab" type="button" data-workspace-tab="credentials">Codex 凭据</button>
           </div>
+          <button id="refreshWorkspace" type="button">刷新</button>
+        </div>
 
-          <div class="resource-detail-body">
-            <div class="inventory-pane active" data-inventory-panel="email">
-              <div class="inventory-controls">
-                <div class="filter-stack">
-                  <div class="segmented" id="emailStatusTabs">
-                    <button class="segment active" data-email-status="unregistered">未注册</button>
-                    <button class="segment" data-email-status="registered">已注册</button>
-                    <button class="segment" data-email-status="received">已接码</button>
-                    <button class="segment" data-email-status="failed">失败</button>
-                    <button class="segment" data-email-status="marketable">可售</button>
-                  </div>
-                  <div class="segmented" id="emailSaleTabs">
-                    <button class="segment active" data-email-sale="unsold">未卖出</button>
-                    <button class="segment" data-email-sale="sold">已卖出</button>
-                    <button class="segment" data-email-sale="all">全部</button>
-                  </div>
+        <div class="panel-body">
+          <div id="emailsWorkspace" class="workspace active" data-workspace="emails">
+            <div class="filters">
+              <div class="filter-stack">
+                <div class="segmented" id="emailStatusTabs">
+                  <button class="segment active" data-email-status="unregistered">未注册</button>
+                  <button class="segment" data-email-status="registered">已注册</button>
+                  <button class="segment" data-email-status="received">已接码</button>
+                  <button class="segment" data-email-status="failed">失败</button>
+                  <button class="segment" data-email-status="marketable">可售</button>
                 </div>
-                <div class="inventory-actions">
-                  <form id="emailSearchForm" class="search-box">
-                    <input id="emailSearch" type="search" autocomplete="off" placeholder="搜索邮箱、client_id 或 CDK">
-                    <button class="small-button" type="submit">搜索</button>
-                    <button id="clearEmailSearch" class="small-button" type="button">清空</button>
-                  </form>
-                  <div class="selection-actions">
-                    <label class="select-all" for="selectEmailsPage">
-                      <input id="selectEmailsPage" type="checkbox">
-                      <span>全选本页</span>
-                    </label>
-                    <span id="emailSelectionCount" class="selection-count">已选 0</span>
-                    <select id="bulkEmailStatus" class="status-select" aria-label="批量邮箱状态">
-                      <option value="registered">改已注册</option>
-                      <option value="received">改已接码</option>
-                      <option value="unregistered">改未注册</option>
-                      <option value="failed">改失败</option>
-                    </select>
-                    <button id="updateSelectedEmailStatus" class="small-button" type="button" disabled>更新状态</button>
-                    <button id="exportEmails" class="primary" type="button" disabled>导出选中</button>
-                    <button id="deleteSelectedEmails" class="small-button danger-button" type="button" disabled>删除选中</button>
-                  </div>
+                <div class="segmented" id="emailSaleTabs">
+                  <button class="segment active" data-email-sale="unsold">未卖出</button>
+                  <button class="segment" data-email-sale="sold">已卖出</button>
+                  <button class="segment" data-email-sale="all">全部</button>
                 </div>
               </div>
-              <div id="emailList" class="resource-list"></div>
-              <div id="emailPagination" class="pager"></div>
-            </div>
-
-            <div class="inventory-pane" data-inventory-panel="cdk">
-              <div class="inventory-controls">
-                <div class="segmented" id="cdkBucketTabs">
-                  <button class="segment active" data-cdk-bucket="unused">未使用 CDK</button>
-                  <button class="segment" data-cdk-bucket="used">已使用 CDK</button>
-                </div>
-                <form id="cdkSearchForm" class="search-box">
-                  <input id="cdkSearch" type="search" autocomplete="off" placeholder="搜索 CDK">
+              <div class="actions">
+                <form id="emailSearchForm" class="search-box">
+                  <input id="emailSearch" type="search" autocomplete="off" placeholder="搜索邮箱或 client_id">
                   <button class="small-button" type="submit">搜索</button>
-                  <button id="clearCdkSearch" class="small-button" type="button">清空</button>
+                  <button id="clearEmailSearch" class="small-button" type="button">清空</button>
                 </form>
-                <div class="selection-actions">
-                  <label class="select-all" for="selectCdksPage">
-                    <input id="selectCdksPage" type="checkbox">
-                    <span>全选本页</span>
-                  </label>
-                  <span id="cdkSelectionCount" class="selection-count">已选 0</span>
-                  <select id="bulkCdkStatus" class="status-select" aria-label="批量 CDK 状态">
-                    <option value="used">改已使用</option>
-                    <option value="unused">改未使用</option>
-                  </select>
-                  <button id="updateSelectedCdkStatus" class="small-button" type="button" disabled>更新状态</button>
-                  <button id="deleteSelectedCdks" class="small-button danger-button" type="button" disabled>删除选中</button>
-                </div>
               </div>
-              <div id="cdkList" class="resource-list"></div>
-              <div id="cdkPagination" class="pager"></div>
             </div>
 
-            <div class="inventory-pane" data-inventory-panel="gpt-login">
-              <div class="inventory-controls">
-                <div class="filter-stack">
-                  <div class="segmented" id="mailPoolStatusTabs">
-                    <button class="segment active" data-mail-pool-status="all">全部</button>
-                    <button class="segment" data-mail-pool-status="not_started">未开始</button>
-                    <button class="segment" data-mail-pool-status="in_progress">进行中</button>
-                    <button class="segment" data-mail-pool-status="completed">成功</button>
-                    <button class="segment" data-mail-pool-status="failed">失败</button>
-                  </div>
-                </div>
-                <div class="inventory-actions">
-                  <form id="mailPoolSearchForm" class="search-box">
-                    <input id="mailPoolSearch" type="search" autocomplete="off" placeholder="搜索邮箱">
-                    <button class="small-button" type="submit">搜索</button>
-                    <button id="clearMailPoolSearch" class="small-button" type="button">清空</button>
-                  </form>
-                  <button id="syncMailPool" class="small-button" type="button">同步</button>
-                  <button id="resetMailPool" class="small-button danger-button" type="button">进行中回未开始</button>
+            <div class="selection-actions">
+              <label class="select-all" for="selectEmailsPage">
+                <input id="selectEmailsPage" type="checkbox">
+                <span>全选本页</span>
+              </label>
+              <span id="emailSelectionCount" class="small-note">已选 0</span>
+              <select id="bulkEmailStatus" aria-label="批量邮箱状态">
+                <option value="registered">改已注册</option>
+                <option value="received">改已接码</option>
+                <option value="unregistered">改未注册</option>
+                <option value="failed">改失败</option>
+              </select>
+              <button id="updateSelectedEmailStatus" class="small-button" type="button" disabled>更新状态</button>
+              <button id="exportEmails" class="primary" type="button" disabled>导出 CSV</button>
+              <button id="deleteSelectedEmails" class="small-button danger-button" type="button" disabled>删除选中</button>
+            </div>
+
+            <div id="emailList" class="resource-list"></div>
+            <div id="emailPagination" class="pager"></div>
+          </div>
+
+          <div id="mailPoolWorkspace" class="workspace" data-workspace="mail-pool">
+            <div class="filters">
+              <div class="filter-stack">
+                <div class="segmented" id="mailPoolStatusTabs">
+                  <button class="segment active" data-mail-pool-status="all">全部</button>
+                  <button class="segment" data-mail-pool-status="not_started">未开始</button>
+                  <button class="segment" data-mail-pool-status="in_progress">进行中</button>
+                  <button class="segment" data-mail-pool-status="completed">成功</button>
+                  <button class="segment" data-mail-pool-status="failed">失败</button>
                 </div>
                 <div id="mailPoolSummary" class="mail-pool-summary"></div>
               </div>
-              <div id="mailPoolList" class="resource-list"></div>
+              <div class="actions">
+                <form id="mailPoolSearchForm" class="search-box">
+                  <input id="mailPoolSearch" type="search" autocomplete="off" placeholder="搜索邮箱">
+                  <button class="small-button" type="submit">搜索</button>
+                  <button id="clearMailPoolSearch" class="small-button" type="button">清空</button>
+                </form>
+                <button id="syncMailPool" class="small-button" type="button">同步</button>
+                <button id="resetMailPool" class="small-button danger-button" type="button">进行中回未开始</button>
+              </div>
             </div>
+            <div id="mailPoolList" class="resource-list"></div>
           </div>
-        </section>
-      </main>
+
+          <div id="credentialsWorkspace" class="workspace" data-workspace="credentials">
+            <div class="filters">
+              <div class="small-note">完整 token 仅在点击复制或下载时读取。</div>
+              <div class="actions">
+                <form id="credentialSearchForm" class="search-box">
+                  <input id="credentialSearch" type="search" autocomplete="off" placeholder="搜索邮箱、账号或来源">
+                  <button class="small-button" type="submit">搜索</button>
+                  <button id="clearCredentialSearch" class="small-button" type="button">清空</button>
+                </form>
+              </div>
+            </div>
+            <div id="credentialList" class="resource-list"></div>
+          </div>
+        </div>
+      </section>
     </div>
   </div>
 
@@ -2089,40 +650,38 @@
 
   <script>
     const state = {
-      page: 'dashboard',
+      workspace: 'emails',
       stats: null,
-      tasks: [],
-      inventoryKind: 'email',
       emailStatus: 'unregistered',
       emailSale: 'unsold',
       emailPage: 1,
       emailPageSize: 20,
       emailQuery: '',
       selectedEmails: new Set(),
-      cdkBucket: 'unused',
-      cdkPage: 1,
-      cdkPageSize: 20,
-      cdkQuery: '',
-      selectedCdks: new Set(),
       mailPoolStatus: 'all',
       mailPoolQuery: '',
       mailPool: null,
+      credentialQuery: '',
+      credentials: null,
       emails: null,
-      cdks: null,
       toastTimer: null,
     };
 
     const $ = (id) => document.getElementById(id);
-    const activeStatuses = new Set(['queued', 'starting', 'waiting_email_otp', 'email_code_found', 'running']);
-    const progressMap = {
-      queued: 12,
-      starting: 28,
-      waiting_email_otp: 48,
-      email_code_found: 72,
-      running: 86,
-      completed: 100,
-      failed: 100,
-      canceled: 100,
+
+    const mailPoolStatusLabels = {
+      all: '全部',
+      not_started: '未开始',
+      in_progress: '进行中',
+      completed: '成功',
+      failed: '失败',
+    };
+
+    const emailStatusLabels = {
+      unregistered: '未注册',
+      registered: '已注册',
+      received: '已接码',
+      failed: '失败',
     };
 
     function toast(message) {
@@ -2198,6 +757,16 @@
       return date.toLocaleString('zh-CN', { hour12: false });
     }
 
+    function formatAnyTime(value) {
+      if (!value) return '-';
+      const numeric = Number(value);
+      const date = Number.isFinite(numeric) && String(value).trim().match(/^\d+$/)
+        ? new Date(numeric * 1000)
+        : new Date(value);
+      if (Number.isNaN(date.getTime())) return '-';
+      return date.toLocaleString('zh-CN', { hour12: false });
+    }
+
     function compact(value, head = 12, tail = 8) {
       const text = String(value || '-');
       if (text.length <= head + tail + 3) return text;
@@ -2214,33 +783,9 @@
       return String(value || '').trim().toLowerCase();
     }
 
-    function normalizeCdkValue(value) {
-      return String(value || '').trim();
-    }
-
     function canExportEmail(item) {
       return ['registered', 'received'].includes(item?.register_status);
     }
-
-    const mailPoolStatusLabels = {
-      all: '全部',
-      not_started: '未开始',
-      in_progress: '进行中',
-      completed: '成功',
-      failed: '失败',
-    };
-
-    const emailStatusLabels = {
-      unregistered: '未注册',
-      registered: '已注册',
-      received: '已接码',
-      failed: '失败',
-    };
-
-    const cdkStatusLabels = {
-      unused: '未使用',
-      used: '已使用',
-    };
 
     function statusOptions(labels, current) {
       return Object.entries(labels).map(([value, label]) => (
@@ -2250,28 +795,9 @@
 
     function emailRegisterLabel(item) {
       if (item?.register_status === 'failed') return '失败';
-      if (item?.register_status === 'received') return `已注册：${formatTime(item.registered_at)}`;
+      if (item?.register_status === 'received') return `已接码：${formatTime(item.code_received_at)}`;
       if (item?.register_status === 'registered') return `已注册：${formatTime(item.registered_at)}`;
       return item?.reserved_at ? `进行中：${formatTime(item.reserved_at)}` : '未注册';
-    }
-
-    async function loadConfig() {
-      const config = await api('/api/config');
-      $('baseUrl').value = config.codex_base_url || '';
-      $('apiMode').value = config.api_mode || 'auto';
-    }
-
-    async function saveConfig() {
-      const data = await api('/api/config', {
-        method: 'PUT',
-        body: {
-          codex_base_url: $('baseUrl').value.trim(),
-          api_mode: $('apiMode').value,
-        },
-      });
-      $('baseUrl').value = data.codex_base_url;
-      $('apiMode').value = data.api_mode;
-      toast('连接设置已保存');
     }
 
     async function loadStats() {
@@ -2283,64 +809,26 @@
       $('statEmailsFailed').textContent = data.emails_failed ?? 0;
       $('statEmailsUnsold').textContent = data.emails_unsold ?? 0;
       $('statEmailsSold').textContent = data.emails_sold ?? 0;
-      $('statCdksUnused').textContent = data.cdks_available ?? data.cdks_unused;
-      $('statCdksUsed').textContent = data.cdks_used;
-      renderIntelligence();
     }
 
-    async function addResources() {
+    async function addEmails() {
       const emailText = $('emailText').value.trim();
-      const cdkText = $('cdkText').value.trim();
-      if (!emailText && !cdkText) {
-        toast('请先填入邮箱或 CDK');
+      if (!emailText) {
+        toast('请先填入邮箱');
         return;
       }
-
-      $('addResources').disabled = true;
+      $('addEmails').disabled = true;
       try {
-        const results = [];
-        if (emailText) {
-          const emailResult = await api('/api/list', {
-            method: 'POST',
-            body: { kind: 'email', bucket: 'unregistered', text: emailText },
-          });
-          $('emailText').value = '';
-          results.push(`邮箱 ${Number(emailResult.added || 0)} 条，跳过 ${Number(emailResult.skipped || 0)} 条`);
-        }
-        if (cdkText) {
-          const cdkResult = await api('/api/list', {
-            method: 'POST',
-            body: { kind: 'cdk', bucket: 'unused', text: cdkText },
-          });
-          $('cdkText').value = '';
-          results.push(`CDK ${Number(cdkResult.added || 0)} 条，跳过 ${Number(cdkResult.skipped || 0)} 条`);
-        }
-        toast(`已写入：${results.join('；')}`);
-        await Promise.all([loadStats(), loadInventory()]);
-      } finally {
-        $('addResources').disabled = false;
-      }
-    }
-
-    async function startTask() {
-      $('startTask').disabled = true;
-      try {
-        const data = await api('/api/automation/start-all', {
+        const result = await api('/api/list', {
           method: 'POST',
-          body: {},
+          body: { kind: 'email', bucket: 'unregistered', text: emailText },
         });
-        toast(`已创建 ${data.created} 个任务，最多并发 ${data.worker_max} 个`);
-        await Promise.all([loadStats(), loadTasks(), loadInventory()]);
+        $('emailText').value = '';
+        toast(`邮箱已写入 ${Number(result.added || 0)} 条，跳过 ${Number(result.skipped || 0)} 条`);
+        await refreshAll();
       } finally {
-        renderIntelligence();
+        $('addEmails').disabled = false;
       }
-    }
-
-    async function loadTasks() {
-      const data = await api('/api/tasks');
-      state.tasks = Array.isArray(data) ? data : [];
-      renderTasks();
-      renderIntelligence();
     }
 
     async function loadEmails() {
@@ -2361,32 +849,31 @@
       renderEmails();
     }
 
-    async function loadCdks() {
-      const params = new URLSearchParams({
-        kind: 'cdk',
-        bucket: state.cdkBucket,
-        q: state.cdkQuery,
-        page: String(state.cdkPage),
-        page_size: String(state.cdkPageSize),
-      });
-      const data = await api(`/api/list?${params.toString()}`);
-      if (Number(data.page || 1) > Number(data.total_pages || 1)) {
-        state.cdkPage = Number(data.total_pages || 1);
-        return loadCdks();
-      }
-      state.cdks = data;
-      syncCdkSelectionWithPage();
-      renderCdks();
-    }
-
     async function loadMailPool() {
       const data = await api('/api/gpt-login/mail-pool');
       state.mailPool = data;
       renderMailPool();
     }
 
-    async function loadInventory() {
-      await Promise.all([loadEmails(), loadCdks(), loadMailPool()]);
+    async function loadCredentials() {
+      const params = new URLSearchParams({ q: state.credentialQuery });
+      const data = await api(`/api/codex-credentials?${params.toString()}`);
+      state.credentials = data;
+      renderCredentials();
+    }
+
+    async function refreshWorkspace() {
+      if (state.workspace === 'emails') {
+        await loadEmails();
+      } else if (state.workspace === 'mail-pool') {
+        await loadMailPool();
+      } else if (state.workspace === 'credentials') {
+        await loadCredentials();
+      }
+    }
+
+    async function refreshAll() {
+      await Promise.all([loadStats(), loadEmails(), loadMailPool(), loadCredentials()]);
     }
 
     function currentPageEmailKeys() {
@@ -2402,12 +889,6 @@
         .filter((email) => email && state.selectedEmails.has(email));
     }
 
-    function currentPageCdkValues() {
-      return (state.cdks?.items || [])
-        .map((item) => normalizeCdkValue(item.value))
-        .filter(Boolean);
-    }
-
     function syncEmailSelectionWithPage() {
       const allowed = new Set(currentPageEmailKeys());
       for (const email of Array.from(state.selectedEmails)) {
@@ -2417,71 +898,24 @@
       }
     }
 
-    function syncCdkSelectionWithPage() {
-      const allowed = new Set(currentPageCdkValues());
-      for (const cdk of Array.from(state.selectedCdks)) {
-        if (!allowed.has(cdk)) {
-          state.selectedCdks.delete(cdk);
-        }
-      }
-    }
-
     function updateEmailSelectionControls() {
       const pageEmails = currentPageEmailKeys();
       const selectedCount = state.selectedEmails.size;
       const exportCount = selectedExportableEmails().length;
       const selectAll = $('selectEmailsPage');
-      const exportButton = $('exportEmails');
-      const deleteButton = $('deleteSelectedEmails');
-      const statusButton = $('updateSelectedEmailStatus');
-      const countEl = $('emailSelectionCount');
       if (selectAll) {
         const selectedOnPage = pageEmails.filter((email) => state.selectedEmails.has(email)).length;
         selectAll.disabled = pageEmails.length === 0;
         selectAll.checked = pageEmails.length > 0 && selectedOnPage === pageEmails.length;
         selectAll.indeterminate = selectedOnPage > 0 && selectedOnPage < pageEmails.length;
       }
-      if (exportButton) {
-        exportButton.disabled = exportCount === 0;
-        exportButton.textContent = exportCount ? `导出选中 (${exportCount})` : '导出选中';
-      }
-      if (deleteButton) {
-        deleteButton.disabled = selectedCount === 0;
-        deleteButton.textContent = selectedCount ? `删除选中 (${selectedCount})` : '删除选中';
-      }
-      if (statusButton) {
-        statusButton.disabled = selectedCount === 0;
-        statusButton.textContent = selectedCount ? `更新状态 (${selectedCount})` : '更新状态';
-      }
-      if (countEl) {
-        countEl.textContent = `已选 ${selectedCount}`;
-      }
-    }
-
-    function updateCdkSelectionControls() {
-      const pageCdks = currentPageCdkValues();
-      const selectedCount = state.selectedCdks.size;
-      const selectAll = $('selectCdksPage');
-      const deleteButton = $('deleteSelectedCdks');
-      const statusButton = $('updateSelectedCdkStatus');
-      const countEl = $('cdkSelectionCount');
-      if (selectAll) {
-        const selectedOnPage = pageCdks.filter((cdk) => state.selectedCdks.has(cdk)).length;
-        selectAll.disabled = pageCdks.length === 0;
-        selectAll.checked = pageCdks.length > 0 && selectedOnPage === pageCdks.length;
-        selectAll.indeterminate = selectedOnPage > 0 && selectedOnPage < pageCdks.length;
-      }
-      if (deleteButton) {
-        deleteButton.disabled = selectedCount === 0;
-        deleteButton.textContent = selectedCount ? `删除选中 (${selectedCount})` : '删除选中';
-      }
-      if (statusButton) {
-        statusButton.disabled = selectedCount === 0;
-        statusButton.textContent = selectedCount ? `更新状态 (${selectedCount})` : '更新状态';
-      }
-      if (countEl) {
-        countEl.textContent = `已选 ${selectedCount}`;
-      }
+      $('exportEmails').disabled = exportCount === 0;
+      $('exportEmails').textContent = exportCount ? `导出 CSV (${exportCount})` : '导出 CSV';
+      $('deleteSelectedEmails').disabled = selectedCount === 0;
+      $('deleteSelectedEmails').textContent = selectedCount ? `删除选中 (${selectedCount})` : '删除选中';
+      $('updateSelectedEmailStatus').disabled = selectedCount === 0;
+      $('updateSelectedEmailStatus').textContent = selectedCount ? `更新状态 (${selectedCount})` : '更新状态';
+      $('emailSelectionCount').textContent = `已选 ${selectedCount}`;
     }
 
     function setCurrentPageEmailSelection(checked) {
@@ -2493,17 +927,6 @@
         }
       });
       renderEmails();
-    }
-
-    function setCurrentPageCdkSelection(checked) {
-      currentPageCdkValues().forEach((cdk) => {
-        if (checked) {
-          state.selectedCdks.add(cdk);
-        } else {
-          state.selectedCdks.delete(cdk);
-        }
-      });
-      renderCdks();
     }
 
     function filteredMailPoolRows() {
@@ -2518,7 +941,6 @@
 
     function renderMailPoolSummary() {
       const el = $('mailPoolSummary');
-      if (!el) return;
       const summary = state.mailPool?.summary || {};
       const stats = [
         ['not_started', '未开始'],
@@ -2548,30 +970,62 @@
     }
 
     function renderMailPool() {
-      updateSegments();
+      updateTabs();
       renderMailPoolSummary();
       const list = $('mailPoolList');
-      if (!list) return;
       const rows = filteredMailPoolRows();
       if (!rows.length) {
         list.innerHTML = `<div class="empty">${state.mailPoolQuery ? '没有匹配的邮箱' : '暂无邮箱池记录'}</div>`;
         return;
       }
-
       list.innerHTML = rows.map((item) => {
         const status = item.status || 'not_started';
         return `
-          <div class="resource-row mail-pool-row">
-            <div class="select-cell">
-              <span class="badge ${escapeHtml(status)}">${escapeHtml(mailPoolStatusLabels[status] || status)}</span>
-            </div>
+          <div class="resource-row">
+            <div><span class="badge ${escapeHtml(status)}">${escapeHtml(mailPoolStatusLabels[status] || status)}</span></div>
             <div class="resource-main">
               <div class="resource-name">${copyButton(item.email || '', '邮箱', item.email || '-')}</div>
               <div class="resource-meta">更新：${formatTime(item.updated_at)} · 占用：${formatTime(item.reserved_at)} · ${escapeHtml(item.reserved_by || '-')}</div>
               <div class="resource-meta">${escapeHtml(item.raw || item.email || '')}</div>
             </div>
+            <div class="resource-actions">${mailPoolActionButtons(item)}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function credentialFlagText(item) {
+      const flags = [];
+      if (item.has_access_token) flags.push('access');
+      if (item.has_refresh_token) flags.push('refresh');
+      if (item.has_id_token) flags.push('id');
+      if (item.has_session_token) flags.push('session');
+      return flags.length ? flags.join(' / ') : '无 token';
+    }
+
+    function renderCredentials() {
+      updateTabs();
+      const list = $('credentialList');
+      const items = state.credentials?.items || [];
+      if (!items.length) {
+        list.innerHTML = `<div class="empty">${state.credentialQuery ? '没有匹配的 Codex 凭据' : '暂无 Codex 凭据'}</div>`;
+        return;
+      }
+      list.innerHTML = items.map((item) => {
+        const id = String(item.id || '');
+        return `
+          <div class="resource-row">
+            <div><span class="badge ${item.has_refresh_token ? 'completed' : ''}">${item.has_refresh_token ? 'RT' : '摘要'}</span></div>
+            <div class="resource-main">
+              <div class="resource-name">${copyButton(item.email || item.account_id || id, '凭据标识', item.email || item.account_id || compact(id, 16, 8))}</div>
+              <div class="resource-meta">账号：${escapeHtml(item.account_id || '-')} · 计划：${escapeHtml(item.plan_type || '-')} · 来源：${escapeHtml(item.source || '-')}</div>
+              <div class="resource-meta">Token：${escapeHtml(credentialFlagText(item))} · 刷新：${escapeHtml(formatAnyTime(item.last_refresh))} · 过期：${escapeHtml(formatAnyTime(item.expired))}</div>
+              <div class="resource-meta">保存：${formatTime(item.updated_at)} · ID：${copyButton(id, '凭据 ID', compact(id, 16, 8))}</div>
+            </div>
             <div class="resource-actions">
-              ${mailPoolActionButtons(item)}
+              <button class="small-button" data-credential-copy="${escapeHtml(id)}">复制完整</button>
+              <button class="small-button" data-credential-download="${escapeHtml(id)}">下载</button>
+              <button class="small-button danger-button" data-credential-delete="${escapeHtml(id)}">删除</button>
             </div>
           </div>
         `;
@@ -2579,12 +1033,12 @@
     }
 
     function renderEmails() {
-      updateSegments();
+      updateTabs();
       const list = $('emailList');
       const items = state.emails?.items || [];
       if (!items.length) {
         list.innerHTML = `<div class="empty">${state.emailQuery ? '没有匹配的邮箱' : '暂无邮箱记录'}</div>`;
-        renderPager('emailPagination', 'email', state.emails || {});
+        renderPager('emailPagination', state.emails || {});
         updateEmailSelectionControls();
         return;
       }
@@ -2592,128 +1046,71 @@
       list.innerHTML = items.map((item) => {
         const canUpdateSale = canExportEmail(item);
         const emailValue = normalizeEmailValue(item.email);
-        const canSelect = Boolean(emailValue);
         const isSelected = state.selectedEmails.has(emailValue);
         const soldLabel = canUpdateSale ? (item.is_sold ? '已卖出' : '未卖出') : (item.is_failed ? '失败' : '不可售');
         const nextSold = item.is_sold ? '0' : '1';
-        const actionText = item.is_sold ? '改为未卖出' : '标记已卖出';
         const saleAction = canUpdateSale
-          ? `<button class="small-button" data-email="${escapeHtml(item.email || '')}" data-sold="${nextSold}">${escapeHtml(actionText)}</button>`
+          ? `<button class="small-button" data-email="${escapeHtml(item.email || '')}" data-sold="${nextSold}">${escapeHtml(item.is_sold ? '改为未卖出' : '标记已卖出')}</button>`
           : `<span class="badge ${item.is_failed ? 'failed' : ''}">${escapeHtml(item.is_failed ? '失败' : '未注册')}</span>`;
         const statusAction = `
-          <select class="status-select" data-email-status-choice="${escapeHtml(item.email || '')}" aria-label="邮箱状态">
+          <select data-email-status-choice="${escapeHtml(item.email || '')}" aria-label="邮箱状态">
             ${statusOptions(emailStatusLabels, item.register_status || 'unregistered')}
           </select>
           <button class="small-button" data-email-status-update="${escapeHtml(item.email || '')}">改状态</button>
         `;
-        const deleteAction = `<button class="small-button danger-button" data-email-delete="${escapeHtml(item.email || '')}">删除</button>`;
-        const codeText = item.has_received_code ? `已接码：${formatTime(item.code_received_at)}` : '未接码';
-        const registerText = emailRegisterLabel(item);
-        const cdkText = item.last_cdk ? `CDK：${copyButton(item.last_cdk, 'CDK', compact(item.last_cdk, 16, 8))}` : 'CDK：-';
         return `
-          <div class="resource-row email-row ${isSelected ? 'is-selected' : ''}">
-            <div class="select-cell">
+          <div class="resource-row ${isSelected ? 'is-selected' : ''}">
+            <div>
               <input
                 type="checkbox"
                 data-email-select="${escapeHtml(emailValue)}"
                 aria-label="选择 ${escapeHtml(item.email || '')}"
                 ${isSelected ? 'checked' : ''}
-                ${canSelect ? '' : 'disabled'}
+                ${emailValue ? '' : 'disabled'}
               >
             </div>
             <div class="resource-main">
               <div class="resource-name">${copyButton(item.email || '', '邮箱', item.email || '-')}</div>
-              <div class="resource-meta">${escapeHtml(registerText)} · ${escapeHtml(codeText)} · ${escapeHtml(soldLabel)}</div>
-              <div class="resource-meta">${cdkText}</div>
+              <div class="resource-meta">${escapeHtml(emailRegisterLabel(item))} · ${escapeHtml(soldLabel)}</div>
               <div class="resource-meta">${escapeHtml(item.preview || '')}</div>
             </div>
             <div class="resource-actions">
               ${statusAction}
               ${saleAction}
-              ${deleteAction}
+              <button class="small-button danger-button" data-email-delete="${escapeHtml(item.email || '')}">删除</button>
             </div>
           </div>
         `;
       }).join('');
-      renderPager('emailPagination', 'email', state.emails || {});
+      renderPager('emailPagination', state.emails || {});
       updateEmailSelectionControls();
     }
 
-    function renderCdks() {
-      updateSegments();
-      const list = $('cdkList');
-      const items = state.cdks?.items || [];
-      if (!items.length) {
-        list.innerHTML = `<div class="empty">${state.cdkQuery ? '没有匹配的 CDK' : '暂无 CDK'}</div>`;
-        renderPager('cdkPagination', 'cdk', state.cdks || {});
-        updateCdkSelectionControls();
-        return;
-      }
-
-      list.innerHTML = items.map((item) => {
-        const cdkValue = normalizeCdkValue(item.value);
-        const isSelected = state.selectedCdks.has(cdkValue);
-        const nextStatus = state.cdkBucket === 'used' ? 'unused' : 'used';
-        return `
-          <div class="resource-row cdk-row ${isSelected ? 'is-selected' : ''}">
-            <div class="select-cell">
-              <input
-                type="checkbox"
-                data-cdk-select="${escapeHtml(cdkValue)}"
-                aria-label="选择 CDK"
-                ${isSelected ? 'checked' : ''}
-                ${cdkValue ? '' : 'disabled'}
-              >
-            </div>
-            <div class="resource-main">
-              <div class="resource-name">${copyButton(item.value || '', 'CDK', compact(item.label || item.value, 20, 12))}</div>
-              <div class="resource-meta">${escapeHtml(item.preview || '')}</div>
-            </div>
-            <div class="resource-actions">
-              <span class="badge">${state.cdkBucket === 'used' ? '已使用' : '未使用'}</span>
-              <button class="small-button" data-cdk-status="${escapeHtml(cdkValue)}" data-cdk-next="${nextStatus}">${nextStatus === 'used' ? '改已使用' : '改未使用'}</button>
-              <button class="small-button danger-button" data-cdk-delete="${escapeHtml(item.value || '')}">删除</button>
-            </div>
-          </div>
-        `;
-      }).join('');
-      renderPager('cdkPagination', 'cdk', state.cdks || {});
-      updateCdkSelectionControls();
-    }
-
-    function renderPager(targetId, kind, data) {
+    function renderPager(targetId, data) {
       const el = $(targetId);
-      if (!el) return;
       const page = Number(data.page || 1);
       const totalPages = Number(data.total_pages || 1);
       const total = Number(data.total ?? data.count ?? 0);
-      const pageSize = Number(data.page_size || (kind === 'email' ? state.emailPageSize : state.cdkPageSize));
+      const pageSize = Number(data.page_size || state.emailPageSize);
       const sizes = [10, 20, 50, 100];
       el.innerHTML = `
         <div>第 ${page} / ${totalPages} 页 · 共 ${total} 条</div>
         <div class="pager-actions">
-          <select data-page-size-kind="${kind}" aria-label="每页数量">
+          <select data-page-size aria-label="每页数量">
             ${sizes.map((size) => `<option value="${size}" ${size === pageSize ? 'selected' : ''}>每页 ${size}</option>`).join('')}
           </select>
-          <button class="small-button" data-page-kind="${kind}" data-page-delta="-1" ${page <= 1 ? 'disabled' : ''}>上一页</button>
-          <button class="small-button" data-page-kind="${kind}" data-page-delta="1" ${page >= totalPages ? 'disabled' : ''}>下一页</button>
+          <button class="small-button" data-page-delta="-1" ${page <= 1 ? 'disabled' : ''}>上一页</button>
+          <button class="small-button" data-page-delta="1" ${page >= totalPages ? 'disabled' : ''}>下一页</button>
         </div>
       `;
     }
 
-    function updateSegments() {
-      $('dashboardPage')?.classList.toggle('active', state.page === 'dashboard');
-      $('dashboardPage')?.toggleAttribute('hidden', state.page !== 'dashboard');
-      $('resourcePage')?.classList.toggle('active', state.page === 'resources');
-      $('resourcePage')?.toggleAttribute('hidden', state.page !== 'resources');
-      document.querySelectorAll('[data-inventory-kind]').forEach((button) => {
-        button.classList.toggle('active', button.dataset.inventoryKind === state.inventoryKind);
-        button.setAttribute('aria-selected', String(button.dataset.inventoryKind === state.inventoryKind));
+    function updateTabs() {
+      document.querySelectorAll('[data-workspace-tab]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.workspaceTab === state.workspace);
       });
-      document.querySelectorAll('[data-inventory-panel]').forEach((panel) => {
-        const active = panel.dataset.inventoryPanel === state.inventoryKind;
-        panel.classList.toggle('active', active);
-        panel.hidden = !active;
+      document.querySelectorAll('[data-workspace]').forEach((panel) => {
+        panel.classList.toggle('active', panel.dataset.workspace === state.workspace);
       });
       document.querySelectorAll('[data-email-status]').forEach((button) => {
         button.classList.toggle('active', button.dataset.emailStatus === state.emailStatus);
@@ -2721,36 +1118,51 @@
       document.querySelectorAll('[data-email-sale]').forEach((button) => {
         button.classList.toggle('active', button.dataset.emailSale === state.emailSale);
       });
-      document.querySelectorAll('[data-cdk-bucket]').forEach((button) => {
-        button.classList.toggle('active', button.dataset.cdkBucket === state.cdkBucket);
-      });
       document.querySelectorAll('[data-mail-pool-status]').forEach((button) => {
         button.classList.toggle('active', button.dataset.mailPoolStatus === state.mailPoolStatus);
       });
     }
 
-    async function updateEmailSold(email, isSold) {
-      await api('/api/email-sale', {
-        method: 'PUT',
-        body: { values: [email], is_sold: isSold },
+    function downloadText(filename, text, mime = 'text/plain;charset=utf-8') {
+      const blob = new Blob([text], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    async function exportCurrentEmails() {
+      const values = selectedExportableEmails();
+      if (!values.length) {
+        toast('请先选择可导出的邮箱');
+        return;
+      }
+      const data = await api('/api/emails/export', {
+        method: 'POST',
+        body: { values },
       });
-      state.selectedEmails.delete(normalizeEmailValue(email));
-      toast(isSold ? '已标记为已卖出' : '已改为未卖出');
+      downloadText(data.filename || 'emails.csv', data.text || '', data.mime || 'text/csv;charset=utf-8');
+      toast(`已导出 ${Number(data.count || 0)} 个邮箱，并标记为已卖出`);
+      state.selectedEmails.clear();
       await Promise.all([loadStats(), loadEmails()]);
     }
 
     async function updateEmailStatus(values, status) {
       const targets = (values || []).map(normalizeEmailValue).filter(Boolean);
       if (!targets.length) {
-        toast('请先选择要更新的邮箱');
+        toast('请先选择邮箱');
         return;
       }
       const data = await api('/api/email-status', {
         method: 'PUT',
         body: { values: targets, status },
       });
-      targets.forEach((email) => state.selectedEmails.delete(email));
       toast(`邮箱已改为${emailStatusLabels[status] || status}：${Number(data.updated || 0)} 个`);
+      state.selectedEmails.clear();
       await Promise.all([loadStats(), loadEmails(), loadMailPool()]);
     }
 
@@ -2765,30 +1177,29 @@
       await updateEmailStatus(values, status);
     }
 
-    async function updateCdkStatus(values, status) {
-      const targets = (values || []).map(normalizeCdkValue).filter(Boolean);
+    async function deleteEmails(values) {
+      const targets = (values || []).map(normalizeEmailValue).filter(Boolean);
       if (!targets.length) {
-        toast('请先选择要更新的 CDK');
+        toast('请先选择要删除的邮箱');
         return;
       }
-      const data = await api('/api/cdk-status', {
-        method: 'PUT',
-        body: { values: targets, status },
+      const data = await api('/api/emails', {
+        method: 'DELETE',
+        body: { values: targets },
       });
-      targets.forEach((cdk) => state.selectedCdks.delete(cdk));
-      toast(`CDK 已改为${cdkStatusLabels[status] || status}：${Number(data.updated || 0)} 个`);
-      await Promise.all([loadStats(), loadCdks()]);
+      toast(`已删除 ${Number(data.removed || 0)} 个邮箱`);
+      targets.forEach((email) => state.selectedEmails.delete(email));
+      await Promise.all([loadStats(), loadEmails(), loadMailPool()]);
     }
 
-    async function updateSelectedCdkStatus() {
-      const values = Array.from(state.selectedCdks);
-      const status = $('bulkCdkStatus').value || 'unused';
+    async function deleteSelectedEmails() {
+      const values = Array.from(state.selectedEmails);
       if (!values.length) {
-        toast('请先选择要更新的 CDK');
+        toast('请先选择要删除的邮箱');
         return;
       }
-      if (!confirm(`确定把选中的 ${values.length} 个 CDK 改为${cdkStatusLabels[status] || status}？`)) return;
-      await updateCdkStatus(values, status);
+      if (!confirm(`确定删除选中的 ${values.length} 个邮箱？`)) return;
+      await deleteEmails(values);
     }
 
     async function markMailPoolEmail(email, status) {
@@ -2818,159 +1229,35 @@
     }
 
     async function syncMailPoolSource() {
-      await api('/api/gpt-login/mail-pool/sync', {
+      const data = await api('/api/gpt-login/mail-pool/sync', {
         method: 'POST',
         body: {},
       });
-      toast('邮箱池已同步到 SQLite');
-      await Promise.all([loadStats(), loadEmails(), loadMailPool()]);
+      const source = data.sourceSync || {};
+      toast(`已同步邮箱源：未注册 ${Number(source.emails_unregistered || 0)}，已注册 ${Number(source.emails_registered || 0)}，已接码 ${Number(source.emails_received || 0)}`);
+      await refreshAll();
     }
 
-    async function deleteEmail(email) {
-      if (!email) return;
-      if (!confirm(`确定删除邮箱 ${email}？`)) return;
-      await api('/api/emails', {
+    async function copyCredential(id) {
+      const data = await api(`/api/codex-credentials/${encodeURIComponent(id)}`);
+      await copyText(JSON.stringify(data.credential || {}, null, 2), 'Codex 凭据');
+    }
+
+    async function downloadCredential(id) {
+      const data = await api(`/api/codex-credentials/${encodeURIComponent(id)}`);
+      downloadText(`codex-credential-${id}.json`, JSON.stringify(data.credential || {}, null, 2), 'application/json;charset=utf-8');
+      toast('Codex 凭据已下载');
+    }
+
+    async function deleteCredential(id) {
+      if (!id) return;
+      if (!confirm('确定删除这条 Codex 凭据？')) return;
+      await api(`/api/codex-credentials/${encodeURIComponent(id)}`, {
         method: 'DELETE',
-        body: { values: [email] },
+        body: {},
       });
-      state.selectedEmails.delete(normalizeEmailValue(email));
-      toast('邮箱已删除');
-      await Promise.all([loadStats(), loadEmails()]);
-    }
-
-    async function deleteSelectedEmails() {
-      const values = Array.from(state.selectedEmails);
-      if (!values.length) {
-        toast('请先选择要删除的邮箱');
-        return;
-      }
-      if (!confirm(`确定批量删除选中的 ${values.length} 个邮箱？`)) return;
-      const data = await api('/api/emails', {
-        method: 'DELETE',
-        body: { values },
-      });
-      state.selectedEmails.clear();
-      toast(`已删除 ${Number(data.removed || 0)} 个邮箱`);
-      await Promise.all([loadStats(), loadEmails()]);
-    }
-
-    async function deleteCdk(cdk) {
-      if (!cdk) return;
-      if (!confirm(`确定删除当前列表中的 CDK？\n${cdk}`)) return;
-      await api('/api/list', {
-        method: 'DELETE',
-        body: { kind: 'cdk', bucket: state.cdkBucket, values: [cdk] },
-      });
-      state.selectedCdks.delete(normalizeCdkValue(cdk));
-      toast('CDK 已删除');
-      await Promise.all([loadStats(), loadCdks()]);
-    }
-
-    async function deleteSelectedCdks() {
-      const values = Array.from(state.selectedCdks);
-      if (!values.length) {
-        toast('请先选择要删除的 CDK');
-        return;
-      }
-      if (!confirm(`确定批量删除当前列表中的 ${values.length} 个 CDK？`)) return;
-      const data = await api('/api/list', {
-        method: 'DELETE',
-        body: { kind: 'cdk', bucket: state.cdkBucket, values },
-      });
-      state.selectedCdks.clear();
-      toast(`已删除 ${Number(data.removed || 0)} 个 CDK`);
-      await Promise.all([loadStats(), loadCdks()]);
-    }
-
-    function downloadText(filename, text) {
-      const blob = new Blob([text || ''], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename || 'resources.txt';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-    }
-
-    async function exportCurrentEmails() {
-      const values = selectedExportableEmails();
-      if (!values.length) {
-        toast('请先选择已注册或已接码邮箱');
-        return;
-      }
-      const button = $('exportEmails');
-      button.disabled = true;
-      try {
-        const data = await api('/api/emails/export', {
-          method: 'POST',
-          body: { values },
-        });
-        downloadText(data.filename, data.text);
-        state.selectedEmails.clear();
-        toast(`已导出 ${data.count || 0} 条，并标记为已售出`);
-        await Promise.all([loadStats(), loadEmails()]);
-      } finally {
-        updateEmailSelectionControls();
-      }
-    }
-
-    function openResourcePage(options = {}) {
-      state.page = 'resources';
-      state.inventoryKind = options.kind || state.inventoryKind || 'email';
-      if (state.inventoryKind === 'email') {
-        state.emailStatus = options.status || state.emailStatus || 'unregistered';
-        state.emailSale = options.sale || state.emailSale || 'unsold';
-        state.emailPage = 1;
-        state.selectedEmails.clear();
-      }
-      if (state.inventoryKind === 'cdk') {
-        state.cdkBucket = options.bucket || state.cdkBucket || 'unused';
-        state.cdkPage = 1;
-        state.selectedCdks.clear();
-      }
-      if (state.inventoryKind === 'gpt-login') {
-        state.mailPoolStatus = options.mailPoolStatus || state.mailPoolStatus || 'all';
-      }
-      updateSegments();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      loadInventory().catch((err) => toast(err.message));
-    }
-
-    function showDashboard() {
-      state.page = 'dashboard';
-      updateSegments();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-
-    function updatePage(kind, delta) {
-      if (kind === 'email') {
-        const totalPages = Number(state.emails?.total_pages || 1);
-        state.emailPage = Math.min(totalPages, Math.max(1, state.emailPage + delta));
-        state.selectedEmails.clear();
-        loadEmails().catch((err) => toast(err.message));
-        return;
-      }
-      const totalPages = Number(state.cdks?.total_pages || 1);
-      state.cdkPage = Math.min(totalPages, Math.max(1, state.cdkPage + delta));
-      state.selectedCdks.clear();
-      loadCdks().catch((err) => toast(err.message));
-    }
-
-    function updatePageSize(kind, size) {
-      const nextSize = Number(size || 20);
-      if (kind === 'email') {
-        state.emailPageSize = nextSize;
-        state.emailPage = 1;
-        state.selectedEmails.clear();
-        loadEmails().catch((err) => toast(err.message));
-        return;
-      }
-      state.cdkPageSize = nextSize;
-      state.cdkPage = 1;
-      state.selectedCdks.clear();
-      loadCdks().catch((err) => toast(err.message));
+      toast('Codex 凭据已删除');
+      await loadCredentials();
     }
 
     function applyEmailSearch() {
@@ -2982,27 +1269,10 @@
 
     function clearEmailSearch() {
       $('emailSearch').value = '';
-      if (!state.emailQuery) return;
       state.emailQuery = '';
       state.emailPage = 1;
       state.selectedEmails.clear();
       loadEmails().catch((err) => toast(err.message));
-    }
-
-    function applyCdkSearch() {
-      state.cdkQuery = $('cdkSearch').value.trim();
-      state.cdkPage = 1;
-      state.selectedCdks.clear();
-      loadCdks().catch((err) => toast(err.message));
-    }
-
-    function clearCdkSearch() {
-      $('cdkSearch').value = '';
-      if (!state.cdkQuery) return;
-      state.cdkQuery = '';
-      state.cdkPage = 1;
-      state.selectedCdks.clear();
-      loadCdks().catch((err) => toast(err.message));
     }
 
     function applyMailPoolSearch() {
@@ -3012,166 +1282,82 @@
 
     function clearMailPoolSearch() {
       $('mailPoolSearch').value = '';
-      if (!state.mailPoolQuery) return;
       state.mailPoolQuery = '';
       renderMailPool();
     }
 
-    function renderIntelligence() {
-      const stats = state.stats || {};
-      const tasks = state.tasks || [];
-      const active = tasks.find((task) => activeStatuses.has(task.status));
-      const latest = tasks[0];
-      const availableEmails = Number(stats.emails_registered_available ?? stats.emails_registered ?? 0);
-      const availableCdks = Number(stats.cdks_available ?? stats.cdks_unused ?? 0);
-      const hasEmail = availableEmails > 0;
-      const hasCdk = availableCdks > 0;
-      const workerText = stats.worker_max ? `线程池 ${stats.worker_pending || 0}/${stats.worker_max}` : '线程池就绪';
-
-      clearStepState();
-
-      if (active) {
-        $('smartBadge').textContent = '监控中';
-        $('smartTitle').textContent = statusTitle(active.status);
-        $('smartHint').textContent = active.message || '任务正在推进，系统会自动轮询验证码和远端状态。';
-        $('runNote').textContent = hasEmail && hasCdk
-          ? `仍可继续调度 ${Math.min(availableEmails, availableCdks)} 组资源，${workerText}。`
-          : `资源已全部进入队列或已耗尽，${workerText}。`;
-        $('startTask').disabled = !(hasEmail && hasCdk);
-        markSteps(active.status);
-        return;
-      }
-
-      if (!hasEmail || !hasCdk) {
-        $('smartBadge').textContent = '等待资源';
-        $('smartTitle').textContent = '资源不足';
-        $('smartHint').textContent = !hasEmail && !hasCdk
-          ? '需要补充已注册邮箱和未使用 CDK 后才能开始。'
-          : (!hasEmail ? '已注册邮箱已用尽。' : '未使用 CDK 已用尽，请写入新的 CDK。');
-        $('runNote').textContent = '资源池补齐后，系统会自动切换为可执行状态。';
-        $('startTask').disabled = true;
-        $('stepResource').classList.add('active');
-        return;
-      }
-
-      $('smartBadge').textContent = '就绪';
-      $('smartTitle').textContent = latest?.status === 'completed' ? '上一轮已完成' : '可以开始';
-      $('smartHint').textContent = latest?.message || '已注册邮箱与 CDK 已就绪，可以一次性跑完整个资源池。';
-      $('runNote').textContent = `本轮可创建 ${Math.min(availableEmails, availableCdks)} 个任务；${workerText}。`;
-      $('startTask').disabled = false;
-      $('stepResource').classList.add('active');
+    function applyCredentialSearch() {
+      state.credentialQuery = $('credentialSearch').value.trim();
+      loadCredentials().catch((err) => toast(err.message));
     }
 
-    function clearStepState() {
-      ['stepResource', 'stepSubmit', 'stepOtp', 'stepRemote'].forEach((id) => {
-        $(id).classList.remove('active');
-      });
+    function clearCredentialSearch() {
+      $('credentialSearch').value = '';
+      state.credentialQuery = '';
+      loadCredentials().catch((err) => toast(err.message));
     }
 
-    function markSteps(status) {
-      $('stepResource').classList.add('active');
-      if (['starting', 'waiting_email_otp', 'email_code_found', 'running', 'completed', 'failed'].includes(status)) {
-        $('stepSubmit').classList.add('active');
-      }
-      if (['waiting_email_otp', 'email_code_found', 'running', 'completed', 'failed'].includes(status)) {
-        $('stepOtp').classList.add('active');
-      }
-      if (['running', 'completed', 'failed'].includes(status)) {
-        $('stepRemote').classList.add('active');
-      }
+    function updatePage(delta) {
+      state.emailPage = Math.max(1, state.emailPage + delta);
+      state.selectedEmails.clear();
+      loadEmails().catch((err) => toast(err.message));
     }
 
-    function statusTitle(status) {
-      return ({
-        queued: '任务排队中',
-        starting: '正在提交',
-        waiting_email_otp: '等待验证码',
-        email_code_found: '验证码已捕获',
-        running: '远端处理中',
-      })[status] || '任务运行中';
+    function updatePageSize(size) {
+      state.emailPageSize = size;
+      state.emailPage = 1;
+      state.selectedEmails.clear();
+      loadEmails().catch((err) => toast(err.message));
     }
 
-    function renderTasks() {
-      const list = $('taskList');
-      const tasks = state.tasks.slice(0, 8);
-      if (!tasks.length) {
-        list.innerHTML = '<div class="empty">暂无任务</div>';
-        return;
-      }
-
-      list.innerHTML = tasks.map((task) => {
-        const logs = (task.logs || []).slice(-4).reverse().map((log) => (
-          `<div class="log-line"><span class="log-time">${escapeHtml(log.time)}</span><span class="log-message">${escapeHtml(log.message)}</span></div>`
-        )).join('');
-        const status = task.status || '-';
-        const progress = progressMap[status] ?? 20;
-        const codeInfo = task.email_code
-          ? `<div class="code-info">验证码 ${escapeHtml(task.email_code)} · ${escapeHtml(task.code_source || '-')}<br>${escapeHtml(task.code_freshness || '')}</div>`
-          : '';
-        return `
-          <article class="task ${escapeHtml(status)}">
-            <div class="task-top">
-              <div>
-                <div class="task-email">${copyButton(task.email || '', '邮箱', task.email || '-')}</div>
-                <div class="task-sub">CDK：${copyButton(task.cdk || '', 'CDK', compact(task.cdk, 18, 10))}</div>
-              </div>
-              <span class="badge ${escapeHtml(status)}">${escapeHtml(status)}</span>
-            </div>
-            <div class="progress" aria-hidden="true"><span style="--value:${progress}%"></span></div>
-            <div class="task-message">${escapeHtml(task.message || '-')}</div>
-            ${codeInfo}
-            <div class="task-sub">创建：${formatTime(task.created_at)} · 更新：${formatTime(task.updated_at)}</div>
-            <div class="logs">${logs || '<span class="task-sub">暂无日志</span>'}</div>
-          </article>
-        `;
-      }).join('');
+    function openEmailFromMetric(status, sale) {
+      state.workspace = 'emails';
+      state.emailStatus = status || 'unregistered';
+      state.emailSale = sale || 'all';
+      state.emailPage = 1;
+      state.selectedEmails.clear();
+      updateTabs();
+      loadEmails().catch((err) => toast(err.message));
     }
 
     function bindEvents() {
-      updateSegments();
-      $('saveConfig').addEventListener('click', () => saveConfig().catch((err) => toast(err.message)));
-      $('addResources').addEventListener('click', () => addResources().catch((err) => toast(err.message)));
-      $('startTask').addEventListener('click', () => startTask().catch((err) => toast(err.message)));
-      $('refreshTasks').addEventListener('click', () => Promise.all([loadStats(), loadTasks(), loadInventory()]).catch((err) => toast(err.message)));
-      $('refreshInventory').addEventListener('click', () => Promise.all([loadStats(), loadInventory()]).catch((err) => toast(err.message)));
-      $('backDashboard').addEventListener('click', showDashboard);
+      $('refreshAll').addEventListener('click', () => refreshAll().catch((err) => toast(err.message)));
+      $('refreshWorkspace').addEventListener('click', () => refreshWorkspace().catch((err) => toast(err.message)));
+      $('addEmails').addEventListener('click', () => addEmails().catch((err) => toast(err.message)));
       $('exportEmails').addEventListener('click', () => exportCurrentEmails().catch((err) => toast(err.message)));
       $('updateSelectedEmailStatus').addEventListener('click', () => updateSelectedEmailStatus().catch((err) => toast(err.message)));
       $('deleteSelectedEmails').addEventListener('click', () => deleteSelectedEmails().catch((err) => toast(err.message)));
-      $('syncMailPool').addEventListener('click', () => syncMailPoolSource().catch((err) => toast(err.message)));
-      $('resetMailPool').addEventListener('click', () => resetMailPoolReservations().catch((err) => toast(err.message)));
       $('selectEmailsPage').addEventListener('change', (event) => {
         setCurrentPageEmailSelection(event.target.checked);
-      });
-      $('updateSelectedCdkStatus').addEventListener('click', () => updateSelectedCdkStatus().catch((err) => toast(err.message)));
-      $('deleteSelectedCdks').addEventListener('click', () => deleteSelectedCdks().catch((err) => toast(err.message)));
-      $('selectCdksPage').addEventListener('change', (event) => {
-        setCurrentPageCdkSelection(event.target.checked);
       });
       $('emailSearchForm').addEventListener('submit', (event) => {
         event.preventDefault();
         applyEmailSearch();
       });
       $('clearEmailSearch').addEventListener('click', clearEmailSearch);
-      $('cdkSearchForm').addEventListener('submit', (event) => {
-        event.preventDefault();
-        applyCdkSearch();
-      });
-      $('clearCdkSearch').addEventListener('click', clearCdkSearch);
       $('mailPoolSearchForm').addEventListener('submit', (event) => {
         event.preventDefault();
         applyMailPoolSearch();
       });
       $('clearMailPoolSearch').addEventListener('click', clearMailPoolSearch);
-      document.querySelectorAll('[data-open-resource]').forEach((card) => {
-        const open = () => {
-          openResourcePage({
-            kind: card.dataset.resourceKind || 'email',
-            status: card.dataset.emailStatus,
-            sale: card.dataset.emailSale,
-            bucket: card.dataset.cdkBucket,
-          });
-        };
+      $('credentialSearchForm').addEventListener('submit', (event) => {
+        event.preventDefault();
+        applyCredentialSearch();
+      });
+      $('clearCredentialSearch').addEventListener('click', clearCredentialSearch);
+      $('syncMailPool').addEventListener('click', () => syncMailPoolSource().catch((err) => toast(err.message)));
+      $('resetMailPool').addEventListener('click', () => resetMailPoolReservations().catch((err) => toast(err.message)));
+
+      document.querySelectorAll('[data-workspace-tab]').forEach((button) => {
+        button.addEventListener('click', () => {
+          state.workspace = button.dataset.workspaceTab || 'emails';
+          updateTabs();
+          refreshWorkspace().catch((err) => toast(err.message));
+        });
+      });
+
+      document.querySelectorAll('[data-open-email]').forEach((card) => {
+        const open = () => openEmailFromMetric(card.dataset.emailStatus, card.dataset.emailSale);
         card.addEventListener('click', open);
         card.addEventListener('keydown', (event) => {
           if (event.key === 'Enter' || event.key === ' ') {
@@ -3180,61 +1366,60 @@
           }
         });
       });
-      document.querySelectorAll('[data-inventory-kind]').forEach((button) => {
-        button.addEventListener('click', () => {
-          state.inventoryKind = button.dataset.inventoryKind || 'email';
-          if (state.inventoryKind === 'email') {
-            state.emailPage = 1;
-            state.selectedEmails.clear();
-            loadEmails().catch((err) => toast(err.message));
-          } else if (state.inventoryKind === 'cdk') {
-            state.cdkPage = 1;
-            state.selectedCdks.clear();
-            loadCdks().catch((err) => toast(err.message));
-          } else {
-            loadMailPool().catch((err) => toast(err.message));
-          }
-          updateSegments();
-        });
-      });
+
       document.querySelectorAll('[data-email-status]').forEach((button) => {
         button.addEventListener('click', () => {
-          state.emailStatus = button.dataset.emailStatus || 'registered';
+          state.emailStatus = button.dataset.emailStatus || 'unregistered';
           state.emailPage = 1;
           state.selectedEmails.clear();
+          updateTabs();
           loadEmails().catch((err) => toast(err.message));
         });
       });
+
       document.querySelectorAll('[data-email-sale]').forEach((button) => {
         button.addEventListener('click', () => {
           state.emailSale = button.dataset.emailSale || 'unsold';
           state.emailPage = 1;
           state.selectedEmails.clear();
+          updateTabs();
           loadEmails().catch((err) => toast(err.message));
         });
       });
-      document.querySelectorAll('[data-cdk-bucket]').forEach((button) => {
-        button.addEventListener('click', () => {
-          state.cdkBucket = button.dataset.cdkBucket || 'unused';
-          state.cdkPage = 1;
-          state.selectedCdks.clear();
-          loadCdks().catch((err) => toast(err.message));
-        });
-      });
+
       document.querySelectorAll('[data-mail-pool-status]').forEach((button) => {
         button.addEventListener('click', () => {
           state.mailPoolStatus = button.dataset.mailPoolStatus || 'all';
+          updateTabs();
           renderMailPool();
         });
       });
-      document.addEventListener('click', (event) => {
-        const copyTarget = event.target.closest('[data-copy-text]');
-        if (!copyTarget) return;
-        event.preventDefault();
-        event.stopPropagation();
-        copyText(copyTarget.dataset.copyText || '', copyTarget.dataset.copyLabel || '内容').catch((err) => toast(err.message));
-      });
-      $('emailList').addEventListener('click', (event) => {
+
+      document.body.addEventListener('click', (event) => {
+        const copyEl = event.target.closest('[data-copy-text]');
+        if (copyEl) {
+          event.preventDefault();
+          copyText(copyEl.dataset.copyText || '', copyEl.dataset.copyLabel || '内容');
+          return;
+        }
+
+        const saleButton = event.target.closest('[data-email][data-sold]');
+        if (saleButton) {
+          saleButton.disabled = true;
+          api('/api/email-sale', {
+            method: 'PUT',
+            body: { values: [saleButton.dataset.email || ''], is_sold: saleButton.dataset.sold === '1' },
+          }).then(() => {
+            toast('邮箱卖出状态已更新');
+            return Promise.all([loadStats(), loadEmails()]);
+          }).catch((err) => {
+            toast(err.message);
+          }).finally(() => {
+            saleButton.disabled = false;
+          });
+          return;
+        }
+
         const statusButton = event.target.closest('[data-email-status-update]');
         if (statusButton) {
           const email = statusButton.dataset.emailStatusUpdate || '';
@@ -3243,112 +1428,108 @@
           const status = select?.value || 'registered';
           statusButton.disabled = true;
           updateEmailStatus([email], status).catch((err) => {
-            statusButton.disabled = false;
             toast(err.message);
+          }).finally(() => {
+            statusButton.disabled = false;
           });
           return;
         }
+
         const deleteButton = event.target.closest('[data-email-delete]');
         if (deleteButton) {
           const email = deleteButton.dataset.emailDelete || '';
+          if (!email || !confirm(`确定删除邮箱 ${email}？`)) return;
           deleteButton.disabled = true;
-          deleteEmail(email).catch((err) => {
-            deleteButton.disabled = false;
+          deleteEmails([email]).catch((err) => {
             toast(err.message);
+          }).finally(() => {
+            deleteButton.disabled = false;
           });
           return;
         }
-        const saleButton = event.target.closest('[data-email][data-sold]');
-        if (!saleButton) return;
-        const email = saleButton.dataset.email || '';
-        const isSold = saleButton.dataset.sold === '1';
-        saleButton.disabled = true;
-        updateEmailSold(email, isSold).catch((err) => {
-          saleButton.disabled = false;
-          toast(err.message);
-        });
+
+        const poolButton = event.target.closest('[data-mail-pool-email][data-mail-pool-next]');
+        if (poolButton) {
+          const email = poolButton.dataset.mailPoolEmail || '';
+          const status = poolButton.dataset.mailPoolNext || '';
+          poolButton.disabled = true;
+          markMailPoolEmail(email, status).catch((err) => {
+            toast(err.message);
+          }).finally(() => {
+            poolButton.disabled = false;
+          });
+          return;
+        }
+
+        const credentialCopy = event.target.closest('[data-credential-copy]');
+        if (credentialCopy) {
+          credentialCopy.disabled = true;
+          copyCredential(credentialCopy.dataset.credentialCopy || '').catch((err) => {
+            toast(err.message);
+          }).finally(() => {
+            credentialCopy.disabled = false;
+          });
+          return;
+        }
+
+        const credentialDownload = event.target.closest('[data-credential-download]');
+        if (credentialDownload) {
+          credentialDownload.disabled = true;
+          downloadCredential(credentialDownload.dataset.credentialDownload || '').catch((err) => {
+            toast(err.message);
+          }).finally(() => {
+            credentialDownload.disabled = false;
+          });
+          return;
+        }
+
+        const credentialDelete = event.target.closest('[data-credential-delete]');
+        if (credentialDelete) {
+          credentialDelete.disabled = true;
+          deleteCredential(credentialDelete.dataset.credentialDelete || '').catch((err) => {
+            toast(err.message);
+          }).finally(() => {
+            credentialDelete.disabled = false;
+          });
+        }
       });
+
       $('emailList').addEventListener('change', (event) => {
-        const checkbox = event.target.closest('[data-email-select]');
-        if (!checkbox) return;
-        const email = checkbox.dataset.emailSelect || '';
-        if (!email) return;
-        if (checkbox.checked) {
+        const input = event.target.closest('[data-email-select]');
+        if (!input) return;
+        const email = input.dataset.emailSelect || '';
+        if (input.checked) {
           state.selectedEmails.add(email);
         } else {
           state.selectedEmails.delete(email);
         }
         renderEmails();
       });
-      $('cdkList').addEventListener('click', (event) => {
-        const statusButton = event.target.closest('[data-cdk-status][data-cdk-next]');
-        if (statusButton) {
-          const cdk = statusButton.dataset.cdkStatus || '';
-          const status = statusButton.dataset.cdkNext || 'unused';
-          statusButton.disabled = true;
-          updateCdkStatus([cdk], status).catch((err) => {
-            statusButton.disabled = false;
-            toast(err.message);
-          });
-          return;
-        }
-        const deleteButton = event.target.closest('[data-cdk-delete]');
-        if (!deleteButton) return;
-        const cdk = deleteButton.dataset.cdkDelete || '';
-        deleteButton.disabled = true;
-        deleteCdk(cdk).catch((err) => {
-          deleteButton.disabled = false;
-          toast(err.message);
-        });
-      });
-      $('cdkList').addEventListener('change', (event) => {
-        const checkbox = event.target.closest('[data-cdk-select]');
-        if (!checkbox) return;
-        const cdk = checkbox.dataset.cdkSelect || '';
-        if (!cdk) return;
-        if (checkbox.checked) {
-          state.selectedCdks.add(cdk);
-        } else {
-          state.selectedCdks.delete(cdk);
-        }
-        renderCdks();
-      });
-      $('mailPoolList').addEventListener('click', (event) => {
-        const button = event.target.closest('[data-mail-pool-email][data-mail-pool-next]');
+
+      $('emailPagination').addEventListener('click', (event) => {
+        const button = event.target.closest('[data-page-delta]');
         if (!button) return;
-        const email = button.dataset.mailPoolEmail || '';
-        const status = button.dataset.mailPoolNext || '';
-        button.disabled = true;
-        markMailPoolEmail(email, status).catch((err) => {
-          button.disabled = false;
-          toast(err.message);
-        });
+        updatePage(Number(button.dataset.pageDelta || 0));
       });
-      ['emailPagination', 'cdkPagination'].forEach((id) => {
-        $(id).addEventListener('click', (event) => {
-          const button = event.target.closest('[data-page-kind]');
-          if (!button) return;
-          updatePage(button.dataset.pageKind, Number(button.dataset.pageDelta || 0));
-        });
-        $(id).addEventListener('change', (event) => {
-          const select = event.target.closest('[data-page-size-kind]');
-          if (!select) return;
-          updatePageSize(select.dataset.pageSizeKind, select.value);
-        });
+
+      $('emailPagination').addEventListener('change', (event) => {
+        const select = event.target.closest('[data-page-size]');
+        if (!select) return;
+        updatePageSize(Number(select.value || 20));
       });
     }
 
-    async function boot() {
+    async function init() {
       bindEvents();
-      await Promise.all([loadConfig(), loadStats(), loadTasks(), loadInventory()]);
-      setInterval(() => {
-        loadStats().catch(() => {});
-        loadTasks().catch(() => {});
-        loadInventory().catch(() => {});
-      }, 5000);
+      updateTabs();
+      try {
+        await refreshAll();
+      } catch (err) {
+        toast(err.message);
+      }
     }
 
-    boot().catch((err) => toast(err.message));
+    init();
   </script>
 </body>
 </html>

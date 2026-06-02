@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
-"""统一管理邮箱与 CDK 的 SQLite 数据层。"""
+"""统一管理邮箱资源与 Codex 凭据的 SQLite 数据层。"""
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import sqlite3
 import time
@@ -17,8 +19,6 @@ DB_FILE = DATA_DIR / "resources.sqlite3"
 GPT_LOGIN_MAIL_FILE = ROOT.parent / "gpt-login" / "mail.csv"
 EMAIL_UNUSED_FILE = DATA_DIR / "emails_unused" / "mail.csv"
 EMAIL_USED_FILE = DATA_DIR / "emails_used" / "mail.csv"
-CDK_UNUSED_FILE = DATA_DIR / "cdks_unused" / "cdks.txt"
-CDK_USED_FILE = DATA_DIR / "cdks_used" / "cdks.txt"
 
 EMAIL_STATUS_UNREGISTERED = "unregistered"
 EMAIL_STATUS_REGISTERED = "registered"
@@ -36,14 +36,10 @@ EMAIL_STATUS_PRIORITY = {
     EMAIL_STATUS_REGISTERED: 1,
     EMAIL_STATUS_RECEIVED: 2,
 }
-EMAIL_SOURCE_MAPPING_VERSION = "2026-06-02-email-source-files-v2"
-CDK_BINDING_BACKFILL_VERSION = "2026-06-02-cdk-binding-v1"
+EMAIL_SOURCE_MAPPING_VERSION = "2026-06-03-email-source-files-no-remote-v1"
 SALE_STATUS_UNSOLD = "unsold"
 SALE_STATUS_SOLD = "sold"
 SALE_STATUSES = {SALE_STATUS_UNSOLD, SALE_STATUS_SOLD}
-CDK_STATUS_UNUSED = "unused"
-CDK_STATUS_USED = "used"
-CDK_STATUSES = {CDK_STATUS_UNUSED, CDK_STATUS_USED}
 
 
 def now_ts() -> int:
@@ -79,8 +75,6 @@ def init_db() -> None:
               registered_at INTEGER,
               code_received_at INTEGER,
               sold_at INTEGER,
-              last_cdk TEXT NOT NULL DEFAULT '',
-              last_task_id TEXT NOT NULL DEFAULT '',
               created_at INTEGER NOT NULL,
               updated_at INTEGER NOT NULL
             );
@@ -88,28 +82,26 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_emails_status
               ON emails (register_status, sale_status, reserved_at, updated_at);
 
-            CREATE TABLE IF NOT EXISTS cdks (
-              cdk TEXT PRIMARY KEY,
-              status TEXT NOT NULL DEFAULT 'unused'
-                CHECK (status IN ('unused', 'used')),
-              bound_email TEXT NOT NULL DEFAULT '',
-              bound_task_id TEXT NOT NULL DEFAULT '',
-              bound_at INTEGER,
-              created_at INTEGER NOT NULL,
-              updated_at INTEGER NOT NULL
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_cdks_status
-              ON cdks (status, updated_at);
-
             CREATE TABLE IF NOT EXISTS metadata (
               key TEXT PRIMARY KEY,
               value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS codex_credentials (
+              id TEXT PRIMARY KEY,
+              email TEXT NOT NULL DEFAULT '',
+              account_id TEXT NOT NULL DEFAULT '',
+              plan_type TEXT NOT NULL DEFAULT '',
+              source TEXT NOT NULL DEFAULT '',
+              credential_json TEXT NOT NULL DEFAULT '{}',
+              last_refresh TEXT NOT NULL DEFAULT '',
+              expired TEXT NOT NULL DEFAULT '',
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL
+            );
             """
         )
         ensure_failed_email_status(conn)
-        ensure_cdk_binding_columns(conn)
         done = conn.execute(
             "SELECT value FROM metadata WHERE key = ?",
             ("legacy_import_done",),
@@ -136,66 +128,6 @@ def init_db() -> None:
                 """,
                 ("email_source_mapping_version", EMAIL_SOURCE_MAPPING_VERSION),
             )
-        binding_backfill = conn.execute(
-            "SELECT value FROM metadata WHERE key = ?",
-            ("cdk_binding_backfill_version",),
-        ).fetchone()
-        if not binding_backfill or str(binding_backfill["value"]) != CDK_BINDING_BACKFILL_VERSION:
-            backfill_cdk_bindings(conn)
-            conn.execute(
-                """
-                INSERT INTO metadata (key, value) VALUES (?, ?)
-                ON CONFLICT(key) DO UPDATE SET value = excluded.value
-                """,
-                ("cdk_binding_backfill_version", CDK_BINDING_BACKFILL_VERSION),
-            )
-
-
-def ensure_cdk_binding_columns(conn: sqlite3.Connection) -> None:
-    rows = conn.execute("PRAGMA table_info(cdks)").fetchall()
-    columns = {str(row["name"]) for row in rows}
-    if "bound_email" not in columns:
-        conn.execute("ALTER TABLE cdks ADD COLUMN bound_email TEXT NOT NULL DEFAULT ''")
-    if "bound_task_id" not in columns:
-        conn.execute("ALTER TABLE cdks ADD COLUMN bound_task_id TEXT NOT NULL DEFAULT ''")
-    if "bound_at" not in columns:
-        conn.execute("ALTER TABLE cdks ADD COLUMN bound_at INTEGER")
-
-
-def backfill_cdk_bindings(conn: sqlite3.Connection) -> None:
-    now = now_ts()
-    conn.execute(
-        """
-        UPDATE cdks
-           SET status = 'used',
-               bound_email = COALESCE((
-                   SELECT email
-                     FROM emails
-                    WHERE emails.last_cdk = cdks.cdk
-                    ORDER BY updated_at DESC
-                    LIMIT 1
-               ), bound_email),
-               bound_task_id = COALESCE((
-                   SELECT last_task_id
-                     FROM emails
-                    WHERE emails.last_cdk = cdks.cdk
-                    ORDER BY updated_at DESC
-                    LIMIT 1
-               ), bound_task_id),
-               bound_at = COALESCE(bound_at, (
-                   SELECT COALESCE(code_received_at, registered_at, updated_at)
-                     FROM emails
-                    WHERE emails.last_cdk = cdks.cdk
-                    ORDER BY updated_at DESC
-                    LIMIT 1
-               ), ?),
-               updated_at = MAX(updated_at, ?)
-         WHERE cdk IN (
-               SELECT last_cdk FROM emails WHERE last_cdk IS NOT NULL AND last_cdk != ''
-         )
-        """,
-        (now, now),
-    )
 
 
 def ensure_failed_email_status(conn: sqlite3.Connection) -> None:
@@ -206,8 +138,16 @@ def ensure_failed_email_status(conn: sqlite3.Connection) -> None:
     if "'failed'" in table_sql or '"failed"' in table_sql:
         return
 
+    columns = {
+        str(item["name"])
+        for item in conn.execute("PRAGMA table_info(emails)").fetchall()
+    }
+
+    def col(name: str, default_sql: str) -> str:
+        return name if name in columns else default_sql
+
     conn.executescript(
-        """
+        f"""
         DROP INDEX IF EXISTS idx_emails_status;
         DROP TABLE IF EXISTS emails_status_migration_old;
         ALTER TABLE emails RENAME TO emails_status_migration_old;
@@ -227,8 +167,6 @@ def ensure_failed_email_status(conn: sqlite3.Connection) -> None:
           registered_at INTEGER,
           code_received_at INTEGER,
           sold_at INTEGER,
-          last_cdk TEXT NOT NULL DEFAULT '',
-          last_task_id TEXT NOT NULL DEFAULT '',
           created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL
         );
@@ -236,21 +174,31 @@ def ensure_failed_email_status(conn: sqlite3.Connection) -> None:
         INSERT INTO emails (
           email, raw, password, client_id, refresh_token, register_status,
           sale_status, reserved_by, reserved_at, registered_at, code_received_at,
-          sold_at, last_cdk, last_task_id, created_at, updated_at
+          sold_at, created_at, updated_at
         )
         SELECT
-          email, raw, password, client_id, refresh_token,
+          email,
+          {col("raw", "email")},
+          {col("password", "''")},
+          {col("client_id", "''")},
+          {col("refresh_token", "''")},
           CASE
             WHEN register_status IN ('unregistered', 'registered', 'received', 'failed')
               THEN register_status
             ELSE 'unregistered'
           END,
           CASE
-            WHEN sale_status IN ('unsold', 'sold') THEN sale_status
+            WHEN {col("sale_status", "'unsold'")} IN ('unsold', 'sold')
+              THEN {col("sale_status", "'unsold'")}
             ELSE 'unsold'
           END,
-          reserved_by, reserved_at, registered_at, code_received_at,
-          sold_at, last_cdk, last_task_id, created_at, updated_at
+          {col("reserved_by", "''")},
+          {col("reserved_at", "NULL")},
+          {col("registered_at", "NULL")},
+          {col("code_received_at", "NULL")},
+          {col("sold_at", "NULL")},
+          {col("created_at", "strftime('%s','now')")},
+          {col("updated_at", "strftime('%s','now')")}
         FROM emails_status_migration_old;
 
         DROP TABLE emails_status_migration_old;
@@ -318,10 +266,6 @@ def normalize_sale_status(value: str | None) -> str:
     return value if value in SALE_STATUSES else SALE_STATUS_UNSOLD
 
 
-def normalize_cdk_status(value: str | None) -> str:
-    return value if value in CDK_STATUSES else CDK_STATUS_UNUSED
-
-
 def normalize_page(page: Any = 1, page_size: Any = 20) -> tuple[int, int]:
     try:
         page_number = int(page)
@@ -338,8 +282,6 @@ def normalize_page(page: Any = 1, page_size: Any = 20) -> tuple[int, int]:
 
 def import_legacy_sources(conn: sqlite3.Connection) -> None:
     sync_source_files(conn)
-    import_cdk_file(conn, CDK_UNUSED_FILE, CDK_STATUS_UNUSED)
-    import_cdk_file(conn, CDK_USED_FILE, CDK_STATUS_USED)
 
 
 def email_source_files() -> tuple[tuple[Path, str], ...]:
@@ -392,11 +334,6 @@ def sync_source_files(conn: sqlite3.Connection | None = None) -> dict[str, int]:
     return summary
 
 
-def import_cdk_file(conn: sqlite3.Connection, path: Path, status: str) -> None:
-    for value in read_lines(path):
-        upsert_cdk(conn, value, status)
-
-
 def upsert_email(
     conn: sqlite3.Connection,
     account: dict[str, str],
@@ -405,8 +342,6 @@ def upsert_email(
     registered_at: Any = None,
     code_received_at: Any = None,
     sold_at: Any = None,
-    last_cdk: str = "",
-    last_task_id: str = "",
     created_at: Any = None,
     updated_at: Any = None,
 ) -> None:
@@ -424,9 +359,9 @@ def upsert_email(
             """
             INSERT INTO emails (
               email, raw, password, client_id, refresh_token, register_status,
-              sale_status, registered_at, code_received_at, sold_at, last_cdk,
-              last_task_id, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              sale_status, registered_at, code_received_at, sold_at,
+              created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 key,
@@ -439,8 +374,6 @@ def upsert_email(
                 int(registered_at) if registered_at else None,
                 int(code_received_at) if code_received_at else None,
                 int(sold_at) if sold_at else None,
-                last_cdk or "",
-                last_task_id or "",
                 created,
                 updated,
             ),
@@ -461,8 +394,6 @@ def upsert_email(
                registered_at = COALESCE(registered_at, ?),
                code_received_at = COALESCE(code_received_at, ?),
                sold_at = COALESCE(sold_at, ?),
-               last_cdk = CASE WHEN ? != '' THEN ? ELSE last_cdk END,
-               last_task_id = CASE WHEN ? != '' THEN ? ELSE last_task_id END,
                updated_at = MAX(updated_at, ?)
          WHERE email = ?
         """,
@@ -476,50 +407,10 @@ def upsert_email(
             int(registered_at) if registered_at else None,
             int(code_received_at) if code_received_at else None,
             int(sold_at) if sold_at else None,
-            last_cdk or "",
-            last_cdk or "",
-            last_task_id or "",
-            last_task_id or "",
             updated,
             key,
         ),
     )
-
-
-def upsert_cdk(conn: sqlite3.Connection, cdk: str, status: str = CDK_STATUS_UNUSED) -> None:
-    value = str(cdk or "").strip()
-    if not value:
-        return
-    status = normalize_cdk_status(status)
-    now = now_ts()
-    row = conn.execute("SELECT status FROM cdks WHERE cdk = ?", (value,)).fetchone()
-    if not row:
-        conn.execute(
-            """
-            INSERT INTO cdks (
-              cdk, status, bound_email, bound_task_id, bound_at, created_at, updated_at
-            ) VALUES (?, ?, '', '', NULL, ?, ?)
-            """,
-            (value, status, now, now),
-        )
-        return
-    if row["status"] != CDK_STATUS_USED and status == CDK_STATUS_USED:
-        conn.execute(
-            "UPDATE cdks SET status = ?, updated_at = ? WHERE cdk = ?",
-            (CDK_STATUS_USED, now, value),
-        )
-
-
-def row_to_cdk_record(row: sqlite3.Row) -> dict[str, Any]:
-    return {
-        "cdk": row["cdk"],
-        "status": row["status"],
-        "bound_email": row["bound_email"] or "",
-        "bound_task_id": row["bound_task_id"] or "",
-        "bound_at": row["bound_at"],
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
-    }
 
 
 def row_to_email_record(row: sqlite3.Row) -> dict[str, Any]:
@@ -541,8 +432,6 @@ def row_to_email_record(row: sqlite3.Row) -> dict[str, Any]:
         "registered_at": row["registered_at"],
         "code_received_at": row["code_received_at"],
         "sold_at": row["sold_at"],
-        "last_cdk": row["last_cdk"] or "",
-        "last_task_id": row["last_task_id"] or "",
         "reserved_by": row["reserved_by"] or "",
         "reserved_at": row["reserved_at"],
         "created_at": row["created_at"],
@@ -565,7 +454,6 @@ def available_email_accounts(active_keys: set[str] | None = None) -> list[dict[s
              WHERE register_status = ?
                AND sale_status = ?
                AND (reserved_at IS NULL OR reserved_at = 0)
-               AND COALESCE(last_cdk, '') = ''
              ORDER BY created_at ASC, email ASC
             """,
             (EMAIL_STATUS_REGISTERED, SALE_STATUS_UNSOLD),
@@ -604,12 +492,6 @@ def record_email_status(email_record: str, **updates: Any) -> dict[str, Any]:
             set_parts.append("sale_status = ?")
             set_parts.append("sold_at = ?")
             params.extend([sale_status or SALE_STATUS_UNSOLD, now if sale_status == SALE_STATUS_SOLD else None])
-        if updates.get("last_cdk") is not None:
-            set_parts.append("last_cdk = ?")
-            params.append(str(updates.get("last_cdk") or ""))
-        if updates.get("last_task_id") is not None:
-            set_parts.append("last_task_id = ?")
-            params.append(str(updates.get("last_task_id") or ""))
         params.append(key)
         conn.execute(f"UPDATE emails SET {', '.join(set_parts)} WHERE email = ?", params)
         row = conn.execute("SELECT * FROM emails WHERE email = ?", (key,)).fetchone()
@@ -643,9 +525,9 @@ def list_emails(
         params.append(sale_filter)
     needle = (query or "").strip().lower()
     if needle:
-        where.append("(email LIKE ? OR client_id LIKE ? OR last_cdk LIKE ?)")
+        where.append("(email LIKE ? OR client_id LIKE ?)")
         like = f"%{needle}%"
-        params.extend([like, like, like])
+        params.extend([like, like])
     where_sql = " AND ".join(where) if where else "1 = 1"
     offset = (page_number - 1) * size
     with connect() as conn:
@@ -732,16 +614,12 @@ def update_email_register_status(values: list[str], register_status: str) -> dic
                     "sale_status = ?",
                     "registered_at = NULL",
                     "code_received_at = NULL",
-                    "last_cdk = ''",
-                    "last_task_id = ''",
                 ])
                 params.append(SALE_STATUS_UNSOLD)
             elif register_status == EMAIL_STATUS_REGISTERED:
                 set_parts.extend([
                     "registered_at = COALESCE(registered_at, ?)",
                     "code_received_at = NULL",
-                    "last_cdk = ''",
-                    "last_task_id = ''",
                 ])
                 params.append(now)
             elif register_status == EMAIL_STATUS_RECEIVED:
@@ -754,8 +632,6 @@ def update_email_register_status(values: list[str], register_status: str) -> dic
                 set_parts.extend([
                     "sale_status = ?",
                     "code_received_at = NULL",
-                    "last_cdk = ''",
-                    "last_task_id = ''",
                 ])
                 params.append(SALE_STATUS_UNSOLD)
 
@@ -781,55 +657,6 @@ def delete_emails(values: list[str]) -> dict[str, int]:
     return {"removed": removed, "skipped": skipped}
 
 
-def cdk_values(status: str) -> list[str]:
-    status = normalize_cdk_status(status)
-    with connect() as conn:
-        rows = conn.execute(
-            "SELECT cdk FROM cdks WHERE status = ? ORDER BY created_at ASC, cdk ASC",
-            (status,),
-        ).fetchall()
-    return [str(row["cdk"]) for row in rows]
-
-
-def list_cdk_records(status: str, query: str = "") -> list[dict[str, Any]]:
-    status = normalize_cdk_status(status)
-    needle = (query or "").strip().lower()
-    where = ["status = ?"]
-    params: list[Any] = [status]
-    if needle:
-        where.append("(LOWER(cdk) LIKE ? OR LOWER(bound_email) LIKE ?)")
-        like = f"%{needle}%"
-        params.extend([like, like])
-    with connect() as conn:
-        rows = conn.execute(
-            f"""
-            SELECT * FROM cdks
-             WHERE {' AND '.join(where)}
-             ORDER BY created_at ASC, cdk ASC
-            """,
-            params,
-        ).fetchall()
-    return [row_to_cdk_record(row) for row in rows]
-
-
-def add_cdks(values: list[str], status: str = CDK_STATUS_UNUSED) -> dict[str, int]:
-    status = normalize_cdk_status(status)
-    added = 0
-    skipped = 0
-    with connect() as conn:
-        for value in values:
-            cdk = str(value or "").strip()
-            if not cdk:
-                continue
-            row = conn.execute("SELECT cdk FROM cdks WHERE cdk = ?", (cdk,)).fetchone()
-            if row:
-                skipped += 1
-                continue
-            upsert_cdk(conn, cdk, status)
-            added += 1
-    return {"added": added, "skipped": skipped}
-
-
 def add_emails(values: list[str], register_status: str = EMAIL_STATUS_UNREGISTERED) -> dict[str, int]:
     register_status = register_status if register_status in EMAIL_STATUSES else EMAIL_STATUS_UNREGISTERED
     added = 0
@@ -847,108 +674,6 @@ def add_emails(values: list[str], register_status: str = EMAIL_STATUS_UNREGISTER
             upsert_email(conn, account, register_status=register_status)
             added += 1
     return {"added": added, "skipped": skipped}
-
-
-def delete_cdks(values: list[str], status: str) -> dict[str, int]:
-    status = normalize_cdk_status(status)
-    targets = {str(value or "").strip() for value in values if str(value or "").strip()}
-    if not targets:
-        raise ValueError("请选择要删除的数据")
-    removed = 0
-    with connect() as conn:
-        for value in targets:
-            cur = conn.execute("DELETE FROM cdks WHERE cdk = ? AND status = ?", (value, status))
-            removed += cur.rowcount
-    return {"removed": removed}
-
-
-def update_cdks_status(values: list[str], status: str) -> dict[str, int]:
-    status = normalize_cdk_status(status)
-    targets = {str(value or "").strip() for value in values if str(value or "").strip()}
-    if not targets:
-        raise ValueError("请选择要更新的 CDK")
-    now = now_ts()
-    updated = 0
-    skipped = 0
-    with connect() as conn:
-        for value in targets:
-            row = conn.execute("SELECT cdk FROM cdks WHERE cdk = ?", (value,)).fetchone()
-            if not row:
-                skipped += 1
-                continue
-            if status == CDK_STATUS_UNUSED:
-                cur = conn.execute(
-                    """
-                    UPDATE cdks
-                       SET status = ?, bound_email = '', bound_task_id = '',
-                           bound_at = NULL, updated_at = ?
-                     WHERE cdk = ?
-                    """,
-                    (status, now, value),
-                )
-            else:
-                cur = conn.execute(
-                    """
-                    UPDATE cdks
-                       SET status = ?, bound_at = COALESCE(bound_at, ?), updated_at = ?
-                     WHERE cdk = ?
-                    """,
-                    (status, now, now, value),
-                )
-            updated += cur.rowcount
-    return {"updated": updated, "skipped": skipped}
-
-
-def move_cdk(
-    value: str,
-    to_status: str,
-    bound_email: str = "",
-    bound_task_id: str = "",
-) -> None:
-    cdk = str(value or "").strip()
-    if not cdk:
-        return
-    to_status = normalize_cdk_status(to_status)
-    bound_key = email_key(bound_email)
-    task_id = str(bound_task_id or "").strip()
-    now = now_ts()
-    with connect() as conn:
-        upsert_cdk(conn, cdk, to_status)
-        if to_status == CDK_STATUS_UNUSED:
-            conn.execute(
-                """
-                UPDATE cdks
-                   SET status = ?, bound_email = '', bound_task_id = '',
-                       bound_at = NULL, updated_at = ?
-                 WHERE cdk = ?
-                """,
-                (to_status, now, cdk),
-            )
-        else:
-            conn.execute(
-                """
-                UPDATE cdks
-                   SET status = ?,
-                       bound_email = CASE WHEN ? != '' THEN ? ELSE bound_email END,
-                       bound_task_id = CASE WHEN ? != '' THEN ? ELSE bound_task_id END,
-                       bound_at = CASE WHEN ? != '' OR ? != '' THEN ? ELSE COALESCE(bound_at, ?) END,
-                       updated_at = ?
-                 WHERE cdk = ?
-                """,
-                (
-                    to_status,
-                    bound_key,
-                    bound_key,
-                    task_id,
-                    task_id,
-                    bound_key,
-                    task_id,
-                    now,
-                    now,
-                    now,
-                    cdk,
-                ),
-            )
 
 
 def claim_email(owner: str = "gpt-login") -> dict[str, Any] | None:
@@ -1046,9 +771,8 @@ def release_email_reservations() -> None:
         )
 
 
-def stats(active_email_keys: set[str] | None = None, active_cdks: set[str] | None = None) -> dict[str, int]:
+def stats(active_email_keys: set[str] | None = None) -> dict[str, int]:
     active_email_keys = active_email_keys or set()
-    active_cdks = active_cdks or set()
     with connect() as conn:
         row = conn.execute(
             """
@@ -1071,16 +795,6 @@ def stats(active_email_keys: set[str] | None = None, active_cdks: set[str] | Non
             FROM emails
             """
         ).fetchone()
-        cdk_row = conn.execute(
-            """
-            SELECT
-              SUM(CASE WHEN status = 'unused' THEN 1 ELSE 0 END) AS cdks_unused,
-              SUM(CASE WHEN status = 'used' THEN 1 ELSE 0 END) AS cdks_used,
-              COUNT(*) AS cdks_total
-            FROM cdks
-            """
-        ).fetchone()
-    cdks_unused = int(cdk_row["cdks_unused"] or 0)
     return {
         "emails_unregistered": int(row["emails_unregistered"] or 0),
         "emails_registered": int(row["emails_registered"] or 0),
@@ -1095,11 +809,157 @@ def stats(active_email_keys: set[str] | None = None, active_cdks: set[str] | Non
         "emails_available": int(row["emails_available"] or 0),
         "emails_registered_available": max(0, int(row["emails_registered_available"] or 0) - len(active_email_keys)),
         "emails_registered_reserved": int(row["emails_registered_reserved"] or 0) + len(active_email_keys),
-        "cdks_unused": cdks_unused,
-        "cdks_used": int(cdk_row["cdks_used"] or 0),
-        "cdks_reserved": len(set(cdk_values(CDK_STATUS_UNUSED)) & active_cdks),
-        "cdks_available": max(0, cdks_unused - len(set(cdk_values(CDK_STATUS_UNUSED)) & active_cdks)),
     }
+
+
+def credential_storage_id(payload: dict[str, Any]) -> str:
+    value = str(payload.get("id") or payload.get("account_id") or payload.get("email") or "").strip()
+    if value:
+        return value.lower()
+    credential = payload.get("credential")
+    raw = json.dumps(credential if isinstance(credential, dict) else payload, ensure_ascii=False, sort_keys=True)
+    return "cred-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def credential_token_flags(credential: dict[str, Any]) -> dict[str, bool]:
+    tokens = credential.get("tokens") if isinstance(credential.get("tokens"), dict) else {}
+    return {
+        "has_access_token": bool(credential.get("access_token") or tokens.get("access_token")),
+        "has_refresh_token": bool(credential.get("refresh_token") or tokens.get("refresh_token")),
+        "has_id_token": bool(credential.get("id_token") or tokens.get("id_token")),
+        "has_session_token": bool(credential.get("session_token") or tokens.get("session_token")),
+    }
+
+
+def row_to_codex_credential(row: sqlite3.Row, include_credential: bool = False) -> dict[str, Any]:
+    try:
+        credential = json.loads(row["credential_json"] or "{}")
+        if not isinstance(credential, dict):
+            credential = {}
+    except json.JSONDecodeError:
+        credential = {}
+    data = {
+        "id": row["id"],
+        "email": row["email"] or "",
+        "account_id": row["account_id"] or "",
+        "plan_type": row["plan_type"] or "",
+        "source": row["source"] or "",
+        "last_refresh": row["last_refresh"] or "",
+        "expired": row["expired"] or "",
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "has_credential": bool(credential),
+        **credential_token_flags(credential),
+    }
+    if include_credential:
+        data["credential"] = credential
+    return data
+
+
+def save_codex_credential(payload: dict[str, Any]) -> dict[str, Any]:
+    credential = payload.get("credential")
+    if not isinstance(credential, dict) or not credential:
+        raise ValueError("缺少 Codex 凭据")
+    now = now_ts()
+    email = str(payload.get("email") or credential.get("email") or "").strip().lower()
+    account_id = str(
+        payload.get("account_id")
+        or credential.get("account_id")
+        or credential.get("chatgpt_account_id")
+        or ""
+    ).strip()
+    plan_type = str(payload.get("plan_type") or credential.get("plan_type") or "").strip()
+    source = str(payload.get("source") or credential.get("source") or "merged-gpt-login-extension").strip()
+    last_refresh = str(payload.get("last_refresh") or credential.get("last_refresh") or "").strip()
+    expired = str(payload.get("expired") or credential.get("expired") or "").strip()
+    record = {
+        "id": credential_storage_id({"id": payload.get("id"), "email": email, "account_id": account_id, "credential": credential}),
+        "email": email,
+        "account_id": account_id,
+        "plan_type": plan_type,
+        "source": source,
+        "credential_json": json.dumps(credential, ensure_ascii=False, sort_keys=True),
+        "last_refresh": last_refresh,
+        "expired": expired,
+    }
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO codex_credentials (
+              id, email, account_id, plan_type, source, credential_json,
+              last_refresh, expired, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              email = excluded.email,
+              account_id = excluded.account_id,
+              plan_type = excluded.plan_type,
+              source = excluded.source,
+              credential_json = excluded.credential_json,
+              last_refresh = excluded.last_refresh,
+              expired = excluded.expired,
+              updated_at = excluded.updated_at
+            """,
+            (
+                record["id"],
+                record["email"],
+                record["account_id"],
+                record["plan_type"],
+                record["source"],
+                record["credential_json"],
+                record["last_refresh"],
+                record["expired"],
+                now,
+                now,
+            ),
+        )
+        row = conn.execute(
+            "SELECT * FROM codex_credentials WHERE id = ?",
+            (record["id"],),
+        ).fetchone()
+    return row_to_codex_credential(row)
+
+
+def list_codex_credentials(query: str = "") -> dict[str, Any]:
+    needle = str(query or "").strip().lower()
+    where = "1 = 1"
+    params: list[Any] = []
+    if needle:
+        where = "(LOWER(email) LIKE ? OR LOWER(account_id) LIKE ? OR LOWER(source) LIKE ?)"
+        like = f"%{needle}%"
+        params.extend([like, like, like])
+    with connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT * FROM codex_credentials
+             WHERE {where}
+             ORDER BY updated_at DESC, email ASC, account_id ASC
+            """,
+            params,
+        ).fetchall()
+    return {
+        "items": [row_to_codex_credential(row) for row in rows],
+        "total": len(rows),
+    }
+
+
+def get_codex_credential(record_id: str) -> dict[str, Any]:
+    value = str(record_id or "").strip()
+    if not value:
+        raise ValueError("缺少凭据 ID")
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM codex_credentials WHERE id = ?", (value,)).fetchone()
+    if not row:
+        raise ValueError("Codex 凭据不存在")
+    return row_to_codex_credential(row, include_credential=True)
+
+
+def delete_codex_credential(record_id: str) -> dict[str, Any]:
+    value = str(record_id or "").strip()
+    if not value:
+        raise ValueError("缺少凭据 ID")
+    with connect() as conn:
+        cur = conn.execute("DELETE FROM codex_credentials WHERE id = ?", (value,))
+    return {"removed": int(cur.rowcount or 0), "id": value}
 
 
 def mail_pool_summary() -> dict[str, Any]:
