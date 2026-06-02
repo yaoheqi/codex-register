@@ -1532,24 +1532,22 @@
       padding: 4px 4px 4px 0;
     }
 
-    .email-row {
+    .email-row,
+    .cdk-row {
       grid-template-columns: auto minmax(0, 1fr) auto;
     }
 
-    .email-row.is-selected {
+    .email-row.is-selected,
+    .cdk-row.is-selected {
       border-color: rgba(47, 109, 246, 0.52);
       background: linear-gradient(180deg, #ffffff, #f5f8ff);
       box-shadow: 0 12px 26px rgba(47, 109, 246, 0.10);
     }
 
-    .email-select-cell {
+    .select-cell {
       display: flex;
       align-items: flex-start;
       padding-top: 3px;
-    }
-
-    .cdk-row {
-      grid-template-columns: minmax(0, 1fr) auto;
     }
 
     .resource-detail-panel {
@@ -1928,6 +1926,7 @@
                     </label>
                     <span id="emailSelectionCount" class="selection-count">已选 0</span>
                     <button id="exportEmails" class="primary" type="button" disabled>导出选中</button>
+                    <button id="deleteSelectedEmails" class="small-button danger-button" type="button" disabled>删除选中</button>
                   </div>
                 </div>
               </div>
@@ -1946,6 +1945,14 @@
                   <button class="small-button" type="submit">搜索</button>
                   <button id="clearCdkSearch" class="small-button" type="button">清空</button>
                 </form>
+                <div class="selection-actions">
+                  <label class="select-all" for="selectCdksPage">
+                    <input id="selectCdksPage" type="checkbox">
+                    <span>全选本页</span>
+                  </label>
+                  <span id="cdkSelectionCount" class="selection-count">已选 0</span>
+                  <button id="deleteSelectedCdks" class="small-button danger-button" type="button" disabled>删除选中</button>
+                </div>
               </div>
               <div id="cdkList" class="resource-list"></div>
               <div id="cdkPagination" class="pager"></div>
@@ -1974,6 +1981,7 @@
       cdkPage: 1,
       cdkPageSize: 20,
       cdkQuery: '',
+      selectedCdks: new Set(),
       emails: null,
       cdks: null,
       toastTimer: null,
@@ -2041,6 +2049,10 @@
 
     function normalizeEmailValue(value) {
       return String(value || '').trim().toLowerCase();
+    }
+
+    function normalizeCdkValue(value) {
+      return String(value || '').trim();
     }
 
     function canExportEmail(item) {
@@ -2166,6 +2178,7 @@
         return loadCdks();
       }
       state.cdks = data;
+      syncCdkSelectionWithPage();
       renderCdks();
     }
 
@@ -2173,15 +2186,27 @@
       await Promise.all([loadEmails(), loadCdks()]);
     }
 
-    function currentPageExportableEmails() {
+    function currentPageEmailKeys() {
       return (state.emails?.items || [])
-        .filter(canExportEmail)
         .map((item) => normalizeEmailValue(item.email))
         .filter(Boolean);
     }
 
+    function selectedExportableEmails() {
+      return (state.emails?.items || [])
+        .filter(canExportEmail)
+        .map((item) => normalizeEmailValue(item.email))
+        .filter((email) => email && state.selectedEmails.has(email));
+    }
+
+    function currentPageCdkValues() {
+      return (state.cdks?.items || [])
+        .map((item) => normalizeCdkValue(item.value))
+        .filter(Boolean);
+    }
+
     function syncEmailSelectionWithPage() {
-      const allowed = new Set(currentPageExportableEmails());
+      const allowed = new Set(currentPageEmailKeys());
       for (const email of Array.from(state.selectedEmails)) {
         if (!allowed.has(email)) {
           state.selectedEmails.delete(email);
@@ -2189,11 +2214,22 @@
       }
     }
 
+    function syncCdkSelectionWithPage() {
+      const allowed = new Set(currentPageCdkValues());
+      for (const cdk of Array.from(state.selectedCdks)) {
+        if (!allowed.has(cdk)) {
+          state.selectedCdks.delete(cdk);
+        }
+      }
+    }
+
     function updateEmailSelectionControls() {
-      const pageEmails = currentPageExportableEmails();
+      const pageEmails = currentPageEmailKeys();
       const selectedCount = state.selectedEmails.size;
+      const exportCount = selectedExportableEmails().length;
       const selectAll = $('selectEmailsPage');
       const exportButton = $('exportEmails');
+      const deleteButton = $('deleteSelectedEmails');
       const countEl = $('emailSelectionCount');
       if (selectAll) {
         const selectedOnPage = pageEmails.filter((email) => state.selectedEmails.has(email)).length;
@@ -2202,8 +2238,33 @@
         selectAll.indeterminate = selectedOnPage > 0 && selectedOnPage < pageEmails.length;
       }
       if (exportButton) {
-        exportButton.disabled = selectedCount === 0;
-        exportButton.textContent = selectedCount ? `导出选中 (${selectedCount})` : '导出选中';
+        exportButton.disabled = exportCount === 0;
+        exportButton.textContent = exportCount ? `导出选中 (${exportCount})` : '导出选中';
+      }
+      if (deleteButton) {
+        deleteButton.disabled = selectedCount === 0;
+        deleteButton.textContent = selectedCount ? `删除选中 (${selectedCount})` : '删除选中';
+      }
+      if (countEl) {
+        countEl.textContent = `已选 ${selectedCount}`;
+      }
+    }
+
+    function updateCdkSelectionControls() {
+      const pageCdks = currentPageCdkValues();
+      const selectedCount = state.selectedCdks.size;
+      const selectAll = $('selectCdksPage');
+      const deleteButton = $('deleteSelectedCdks');
+      const countEl = $('cdkSelectionCount');
+      if (selectAll) {
+        const selectedOnPage = pageCdks.filter((cdk) => state.selectedCdks.has(cdk)).length;
+        selectAll.disabled = pageCdks.length === 0;
+        selectAll.checked = pageCdks.length > 0 && selectedOnPage === pageCdks.length;
+        selectAll.indeterminate = selectedOnPage > 0 && selectedOnPage < pageCdks.length;
+      }
+      if (deleteButton) {
+        deleteButton.disabled = selectedCount === 0;
+        deleteButton.textContent = selectedCount ? `删除选中 (${selectedCount})` : '删除选中';
       }
       if (countEl) {
         countEl.textContent = `已选 ${selectedCount}`;
@@ -2211,7 +2272,7 @@
     }
 
     function setCurrentPageEmailSelection(checked) {
-      currentPageExportableEmails().forEach((email) => {
+      currentPageEmailKeys().forEach((email) => {
         if (checked) {
           state.selectedEmails.add(email);
         } else {
@@ -2219,6 +2280,17 @@
         }
       });
       renderEmails();
+    }
+
+    function setCurrentPageCdkSelection(checked) {
+      currentPageCdkValues().forEach((cdk) => {
+        if (checked) {
+          state.selectedCdks.add(cdk);
+        } else {
+          state.selectedCdks.delete(cdk);
+        }
+      });
+      renderCdks();
     }
 
     function renderEmails() {
@@ -2235,7 +2307,7 @@
       list.innerHTML = items.map((item) => {
         const canUpdateSale = canExportEmail(item);
         const emailValue = normalizeEmailValue(item.email);
-        const canSelect = canUpdateSale && Boolean(emailValue);
+        const canSelect = Boolean(emailValue);
         const isSelected = state.selectedEmails.has(emailValue);
         const soldLabel = canUpdateSale ? (item.is_sold ? '已卖出' : '未卖出') : '未注册';
         const nextSold = item.is_sold ? '0' : '1';
@@ -2249,7 +2321,7 @@
         const cdkText = item.last_cdk ? `CDK：${compact(item.last_cdk, 16, 8)}` : 'CDK：-';
         return `
           <div class="resource-row email-row ${isSelected ? 'is-selected' : ''}">
-            <div class="email-select-cell">
+            <div class="select-cell">
               <input
                 type="checkbox"
                 data-email-select="${escapeHtml(emailValue)}"
@@ -2282,22 +2354,37 @@
       if (!items.length) {
         list.innerHTML = `<div class="empty">${state.cdkQuery ? '没有匹配的 CDK' : '暂无 CDK'}</div>`;
         renderPager('cdkPagination', 'cdk', state.cdks || {});
+        updateCdkSelectionControls();
         return;
       }
 
-      list.innerHTML = items.map((item) => `
-        <div class="resource-row cdk-row">
-          <div class="resource-main">
-            <div class="resource-name">${escapeHtml(compact(item.label || item.value, 20, 12))}</div>
-            <div class="resource-meta">${escapeHtml(item.preview || '')}</div>
+      list.innerHTML = items.map((item) => {
+        const cdkValue = normalizeCdkValue(item.value);
+        const isSelected = state.selectedCdks.has(cdkValue);
+        return `
+          <div class="resource-row cdk-row ${isSelected ? 'is-selected' : ''}">
+            <div class="select-cell">
+              <input
+                type="checkbox"
+                data-cdk-select="${escapeHtml(cdkValue)}"
+                aria-label="选择 CDK"
+                ${isSelected ? 'checked' : ''}
+                ${cdkValue ? '' : 'disabled'}
+              >
+            </div>
+            <div class="resource-main">
+              <div class="resource-name">${escapeHtml(compact(item.label || item.value, 20, 12))}</div>
+              <div class="resource-meta">${escapeHtml(item.preview || '')}</div>
+            </div>
+            <div class="resource-actions">
+              <span class="badge">${state.cdkBucket === 'used' ? '已使用' : '未使用'}</span>
+              <button class="small-button danger-button" data-cdk-delete="${escapeHtml(item.value || '')}">删除</button>
+            </div>
           </div>
-          <div class="resource-actions">
-            <span class="badge">${state.cdkBucket === 'used' ? '已使用' : '未使用'}</span>
-            <button class="small-button danger-button" data-cdk-delete="${escapeHtml(item.value || '')}">删除</button>
-          </div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
       renderPager('cdkPagination', 'cdk', state.cdks || {});
+      updateCdkSelectionControls();
     }
 
     function renderPager(targetId, kind, data) {
@@ -2367,6 +2454,22 @@
       await Promise.all([loadStats(), loadEmails()]);
     }
 
+    async function deleteSelectedEmails() {
+      const values = Array.from(state.selectedEmails);
+      if (!values.length) {
+        toast('请先选择要删除的邮箱');
+        return;
+      }
+      if (!confirm(`确定批量删除选中的 ${values.length} 个邮箱？`)) return;
+      const data = await api('/api/emails', {
+        method: 'DELETE',
+        body: { values },
+      });
+      state.selectedEmails.clear();
+      toast(`已删除 ${Number(data.removed || 0)} 个邮箱`);
+      await Promise.all([loadStats(), loadEmails()]);
+    }
+
     async function deleteCdk(cdk) {
       if (!cdk) return;
       if (!confirm(`确定删除当前列表中的 CDK？\n${cdk}`)) return;
@@ -2374,7 +2477,24 @@
         method: 'DELETE',
         body: { kind: 'cdk', bucket: state.cdkBucket, values: [cdk] },
       });
+      state.selectedCdks.delete(normalizeCdkValue(cdk));
       toast('CDK 已删除');
+      await Promise.all([loadStats(), loadCdks()]);
+    }
+
+    async function deleteSelectedCdks() {
+      const values = Array.from(state.selectedCdks);
+      if (!values.length) {
+        toast('请先选择要删除的 CDK');
+        return;
+      }
+      if (!confirm(`确定批量删除当前列表中的 ${values.length} 个 CDK？`)) return;
+      const data = await api('/api/list', {
+        method: 'DELETE',
+        body: { kind: 'cdk', bucket: state.cdkBucket, values },
+      });
+      state.selectedCdks.clear();
+      toast(`已删除 ${Number(data.removed || 0)} 个 CDK`);
       await Promise.all([loadStats(), loadCdks()]);
     }
 
@@ -2391,9 +2511,9 @@
     }
 
     async function exportCurrentEmails() {
-      const values = Array.from(state.selectedEmails);
+      const values = selectedExportableEmails();
       if (!values.length) {
-        toast('请先选择要导出的邮箱');
+        toast('请先选择已注册或已接码邮箱');
         return;
       }
       const button = $('exportEmails');
@@ -2424,6 +2544,7 @@
       if (state.inventoryKind === 'cdk') {
         state.cdkBucket = options.bucket || state.cdkBucket || 'unused';
         state.cdkPage = 1;
+        state.selectedCdks.clear();
       }
       updateSegments();
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2446,6 +2567,7 @@
       }
       const totalPages = Number(state.cdks?.total_pages || 1);
       state.cdkPage = Math.min(totalPages, Math.max(1, state.cdkPage + delta));
+      state.selectedCdks.clear();
       loadCdks().catch((err) => toast(err.message));
     }
 
@@ -2460,6 +2582,7 @@
       }
       state.cdkPageSize = nextSize;
       state.cdkPage = 1;
+      state.selectedCdks.clear();
       loadCdks().catch((err) => toast(err.message));
     }
 
@@ -2482,6 +2605,7 @@
     function applyCdkSearch() {
       state.cdkQuery = $('cdkSearch').value.trim();
       state.cdkPage = 1;
+      state.selectedCdks.clear();
       loadCdks().catch((err) => toast(err.message));
     }
 
@@ -2490,6 +2614,7 @@
       if (!state.cdkQuery) return;
       state.cdkQuery = '';
       state.cdkPage = 1;
+      state.selectedCdks.clear();
       loadCdks().catch((err) => toast(err.message));
     }
 
@@ -2612,8 +2737,13 @@
       $('refreshInventory').addEventListener('click', () => Promise.all([loadStats(), loadInventory()]).catch((err) => toast(err.message)));
       $('backDashboard').addEventListener('click', showDashboard);
       $('exportEmails').addEventListener('click', () => exportCurrentEmails().catch((err) => toast(err.message)));
+      $('deleteSelectedEmails').addEventListener('click', () => deleteSelectedEmails().catch((err) => toast(err.message)));
       $('selectEmailsPage').addEventListener('change', (event) => {
         setCurrentPageEmailSelection(event.target.checked);
+      });
+      $('deleteSelectedCdks').addEventListener('click', () => deleteSelectedCdks().catch((err) => toast(err.message)));
+      $('selectCdksPage').addEventListener('change', (event) => {
+        setCurrentPageCdkSelection(event.target.checked);
       });
       $('emailSearchForm').addEventListener('submit', (event) => {
         event.preventDefault();
@@ -2651,6 +2781,7 @@
             loadEmails().catch((err) => toast(err.message));
           } else {
             state.cdkPage = 1;
+            state.selectedCdks.clear();
             loadCdks().catch((err) => toast(err.message));
           }
           updateSegments();
@@ -2676,6 +2807,7 @@
         button.addEventListener('click', () => {
           state.cdkBucket = button.dataset.cdkBucket || 'unused';
           state.cdkPage = 1;
+          state.selectedCdks.clear();
           loadCdks().catch((err) => toast(err.message));
         });
       });
@@ -2721,6 +2853,18 @@
           deleteButton.disabled = false;
           toast(err.message);
         });
+      });
+      $('cdkList').addEventListener('change', (event) => {
+        const checkbox = event.target.closest('[data-cdk-select]');
+        if (!checkbox) return;
+        const cdk = checkbox.dataset.cdkSelect || '';
+        if (!cdk) return;
+        if (checkbox.checked) {
+          state.selectedCdks.add(cdk);
+        } else {
+          state.selectedCdks.delete(cdk);
+        }
+        renderCdks();
       });
       ['emailPagination', 'cdkPagination'].forEach((id) => {
         $(id).addEventListener('click', (event) => {
