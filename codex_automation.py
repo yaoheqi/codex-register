@@ -322,6 +322,14 @@ def update_email_sale_status(values: list[str], is_sold: bool) -> dict[str, int]
         raise AppError(str(exc)) from exc
 
 
+def update_email_register_status(values: list[str], register_status: str) -> dict[str, int]:
+    try:
+        with DATA_LOCK:
+            return store.update_email_register_status(values, register_status)
+    except ValueError as exc:
+        raise AppError(str(exc)) from exc
+
+
 def delete_email_statuses(values: list[str]) -> dict[str, int]:
     try:
         with DATA_LOCK:
@@ -356,7 +364,7 @@ def export_email_statuses(body: dict[str, Any]) -> dict[str, Any]:
         if not item:
             skipped += 1
             continue
-        if item.get("register_status") == store.EMAIL_STATUS_UNREGISTERED:
+        if item.get("register_status") not in {store.EMAIL_STATUS_REGISTERED, store.EMAIL_STATUS_RECEIVED}:
             skipped += 1
             continue
         export_items.append(item)
@@ -478,6 +486,27 @@ def display_item(kind: str, value: str, index: int) -> dict[str, Any]:
     return {"index": index, "value": value, "label": label, "preview": preview}
 
 
+def display_cdk_record(record: dict[str, Any], index: int) -> dict[str, Any]:
+    value = str(record.get("cdk") or "")
+    bound_email = str(record.get("bound_email") or "")
+    bound_task_id = str(record.get("bound_task_id") or "")
+    preview_parts = [mask_secret(value)]
+    if bound_email:
+        preview_parts.append(f"绑定邮箱：{bound_email}")
+    if bound_task_id:
+        preview_parts.append(f"任务：{bound_task_id}")
+    return {
+        "index": index,
+        "value": value,
+        "label": value,
+        "preview": " · ".join(preview_parts),
+        "bound_email": bound_email,
+        "bound_task_id": bound_task_id,
+        "bound_at": record.get("bound_at"),
+        "status": record.get("status") or "",
+    }
+
+
 def mask_secret(value: str, keep: int = 8) -> str:
     value = str(value or "")
     if len(value) <= keep * 2 + 3:
@@ -496,13 +525,13 @@ def list_items(kind: str, bucket: str, query: str = "", page: Any = 1, page_size
     needle = (query or "").strip().lower()
     page_number, size = store.normalize_page(page, page_size)
     with DATA_LOCK:
-        lines = store.list_cdks(bucket, needle)
-    total = len(lines)
+        records = store.list_cdk_records(bucket, needle)
+    total = len(records)
     offset = (page_number - 1) * size
-    page_values = lines[offset : offset + size]
+    page_values = records[offset : offset + size]
     items = []
-    for index, value in enumerate(page_values, start=offset):
-        items.append(display_item(kind, value, index))
+    for index, record in enumerate(page_values, start=offset):
+        items.append(display_cdk_record(record, index))
     return {
         "kind": kind,
         "bucket": bucket,
@@ -543,11 +572,26 @@ def delete_items(kind: str, bucket: str, values: list[str]) -> dict[str, Any]:
         raise AppError(str(exc)) from exc
 
 
-def move_value(kind: str, from_bucket: str, to_bucket: str, value: str) -> None:
+def move_value(
+    kind: str,
+    from_bucket: str,
+    to_bucket: str,
+    value: str,
+    bound_email: str = "",
+    bound_task_id: str = "",
+) -> None:
     if kind != "cdk":
         raise AppError("当前只支持移动 CDK 状态")
     with DATA_LOCK:
-        store.move_cdk(value, to_bucket)
+        store.move_cdk(value, to_bucket, bound_email=bound_email, bound_task_id=bound_task_id)
+
+
+def update_cdk_statuses(values: list[str], status: str) -> dict[str, int]:
+    try:
+        with DATA_LOCK:
+            return store.update_cdks_status(values, status)
+    except ValueError as exc:
+        raise AppError(str(exc)) from exc
 
 
 def stats() -> dict[str, int]:
@@ -723,20 +767,41 @@ def build_automation_task(email_record: str, cdk: str) -> dict[str, Any]:
     }
 
 
+def clear_loaded_task_logs(tasks: list[dict[str, Any]], query: str = "") -> int:
+    needle = (query or "").lower().strip()
+    cleared = 0
+    for task in tasks:
+        if needle and needle not in json.dumps(task, ensure_ascii=False).lower():
+            continue
+        if task.get("logs"):
+            task["logs"] = []
+            task["updated_at"] = now_ts()
+            cleared += 1
+    return cleared
+
+
+def clear_task_pool() -> int:
+    with TASK_LOCK:
+        tasks = load_tasks()
+        cleared = len(tasks)
+        save_tasks([])
+    return cleared
+
+
 def create_automation_task(email_value: str | None = None, cdk_value: str | None = None) -> dict[str, Any]:
     with TASK_CREATE_LOCK:
+        clear_task_pool()
         email_record, cdk = pick_unused_pair(email_value, cdk_value)
         task = build_automation_task(email_record, cdk)
         with TASK_LOCK:
-            tasks = load_tasks()
-            tasks.insert(0, task)
-            save_tasks(tasks)
+            save_tasks([task])
     submit_automation_task(task["id"])
     return task
 
 
 def create_automation_batch() -> dict[str, Any]:
     with TASK_CREATE_LOCK:
+        cleared_tasks = clear_task_pool()
         with DATA_LOCK:
             cdks = store.cdk_values("unused")
         active_emails, active_cdks = active_values()
@@ -755,9 +820,7 @@ def create_automation_batch() -> dict[str, Any]:
             for index in range(count)
         ]
         with TASK_LOCK:
-            tasks = load_tasks()
-            tasks = new_tasks + tasks
-            save_tasks(tasks)
+            save_tasks(new_tasks)
 
     for task in new_tasks:
         submit_automation_task(task["id"])
@@ -777,6 +840,7 @@ def create_automation_batch() -> dict[str, Any]:
         "cdks_scheduled": len(new_tasks),
         "emails_left": max(0, len(available_emails) - len(new_tasks)),
         "cdks_left": max(0, len(available_cdks) - len(new_tasks)),
+        "cleared_tasks": cleared_tasks,
         "tasks": new_tasks,
     }
 
@@ -1312,26 +1376,264 @@ def is_completed_payload(payload: dict[str, Any]) -> bool:
     return normalize_remote_status(payload) == "completed" or payload.get("success") is True
 
 
-def completed_status_matches_account(payload: dict[str, Any], email_addr: str, cdk: str) -> tuple[bool, str | None]:
-    if norm_text(payload.get("cdk")) != norm_text(cdk):
-        return False, None
+REMOTE_UNUSED_STATUSES = {
+    "unused",
+    "available",
+    "not_found",
+    "notfound",
+    "not found",
+    "none",
+    "new",
+    "未使用",
+    "未找到",
+    "不存在",
+}
 
-    target_email = norm_text(email_addr)
+
+def cdk_lookup_record(payload: dict[str, Any], cdk: str) -> dict[str, Any] | None:
+    target_cdk = norm_text(cdk)
+    root_cdk = norm_text(payload.get("cdk"))
     root_task_id = payload.get("task_id") or payload.get("id")
-    if norm_text(payload.get("email")) == target_email and is_completed_payload(payload):
-        return True, str(root_task_id or "")
 
-    for key in ["emails", "tasks"]:
+    def matched_item(item: dict[str, Any], allow_implicit_root: bool = False) -> dict[str, Any] | None:
+        item_cdk = norm_text(item.get("cdk")) or root_cdk
+        if item_cdk != target_cdk and not (allow_implicit_root and not item_cdk):
+            return None
+
+        status = str(item.get("status") or payload.get("status") or "").strip()
+        status_norm = norm_text(status)
+        email_addr = str(item.get("email") or payload.get("email") or "").strip()
+        task_id_value = item.get("task_id") or item.get("id") or root_task_id or ""
+        success = item.get("success", payload.get("success"))
+
+        if status_norm in REMOTE_UNUSED_STATUSES and not email_addr and not task_id_value:
+            return None
+        if not email_addr and not task_id_value and not status and success is not True:
+            return None
+
+        merged = dict(payload)
+        merged.update(item)
+        if item_cdk:
+            merged["cdk"] = item_cdk
+        if status:
+            merged["status"] = status
+        merged["success"] = success
+
+        return {
+            "email": email_addr,
+            "task_id": str(task_id_value or ""),
+            "status": status or normalize_remote_status(merged),
+            "success": success,
+            "completed": is_completed_payload(merged),
+        }
+
+    root_match = matched_item(payload, allow_implicit_root=True)
+    if root_match:
+        return root_match
+
+    for key in ["emails", "tasks", "items"]:
         items = payload.get(key)
         if not isinstance(items, list):
             continue
         for item in items:
             if not isinstance(item, dict):
                 continue
-            if norm_text(item.get("email")) == target_email and is_completed_payload(item):
-                return True, str(item.get("task_id") or root_task_id or "")
+            result = matched_item(item)
+            if result:
+                return result
 
-    return False, None
+    return None
+
+
+def completed_cdk_status(payload: dict[str, Any], cdk: str) -> dict[str, str] | None:
+    record = cdk_lookup_record(payload, cdk)
+    if not record or not record.get("completed"):
+        return None
+    return {
+        "email": str(record.get("email") or ""),
+        "task_id": str(record.get("task_id") or ""),
+    }
+
+
+def completion_email_record(
+    fallback_account: dict[str, str],
+    remote_email: str | None = None,
+) -> tuple[str | None, str]:
+    remote_key = email_key(str(remote_email or ""))
+    fallback_key = email_key(fallback_account["email"])
+    if not remote_key or remote_key == fallback_key:
+        return fallback_account["raw"], fallback_account["email"]
+
+    with DATA_LOCK:
+        record = store.load_email_records().get(remote_key)
+    if record and record.get("raw"):
+        return str(record["raw"]), str(record.get("email") or remote_email or "")
+    return None, str(remote_email or "")
+
+
+def remote_email_record(
+    fallback_account: dict[str, str],
+    remote_email: str | None = None,
+) -> tuple[str | None, str]:
+    remote_key = email_key(str(remote_email or ""))
+    if not remote_key:
+        return None, ""
+    if remote_key == email_key(fallback_account["email"]):
+        return fallback_account["raw"], fallback_account["email"]
+
+    with DATA_LOCK:
+        record = store.load_email_records().get(remote_key)
+    if record and record.get("raw"):
+        return str(record["raw"]), str(record.get("email") or remote_email or "")
+    return None, str(remote_email or "")
+
+
+def apply_completed_cdk_status(
+    task_id: str,
+    status_data: dict[str, Any],
+    account: dict[str, str],
+    cdk: str,
+    source: str,
+) -> bool:
+    completion = completed_cdk_status(status_data, cdk)
+    if not completion:
+        return False
+
+    remote_task_id = completion.get("task_id") or ""
+    remote_email = completion.get("email") or ""
+    update_task(
+        task_id,
+        codex_task_id=remote_task_id or task_id,
+        status_payload=status_data,
+        message=f"{source}确认远端已完成",
+    )
+    append_task_log(
+        task_id,
+        (
+            f"{source}确认成功："
+            f"远端邮箱={remote_email or '-'}，本任务邮箱={account['email']}，"
+            f"CDK={cdk}，远端任务={remote_task_id or '-'}"
+        ),
+    )
+    finish_task_by_status(task_id, "completed", account["raw"], cdk, remote_email=remote_email)
+    return True
+
+
+def apply_used_cdk_status(
+    task_id: str,
+    status_data: dict[str, Any],
+    account: dict[str, str],
+    cdk: str,
+    source: str,
+) -> bool:
+    record = cdk_lookup_record(status_data, cdk)
+    if not record:
+        return False
+
+    if record.get("completed"):
+        return apply_completed_cdk_status(task_id, status_data, account, cdk, source)
+
+    remote_task_id = str(record.get("task_id") or "")
+    remote_email = str(record.get("email") or "")
+    remote_status = str(record.get("status") or "-")
+    target_record, target_email = remote_email_record(account, remote_email)
+    if target_record:
+        record_email_status(
+            target_record,
+            is_registered=True,
+            last_cdk=cdk,
+            last_task_id=task_id,
+        )
+        email_log = f"远端邮箱={target_email} 已保持/登记为已注册"
+    elif remote_email:
+        append_task_log(task_id, f"远端邮箱 {remote_email} 不在本地邮箱表，仅更新 CDK 状态")
+        email_log = f"远端邮箱={remote_email} 未在本地邮箱表"
+    else:
+        email_log = "远端未返回邮箱"
+
+    move_value(
+        "cdk",
+        "unused",
+        "used",
+        cdk,
+        bound_email=remote_email,
+        bound_task_id=remote_task_id or task_id,
+    )
+    update_task(
+        task_id,
+        codex_task_id=remote_task_id or task_id,
+        status="completed",
+        completed_at=now_ts(),
+        status_payload=status_data,
+        message=f"{source}确认 CDK 已被远端占用，已停止当前绑定",
+    )
+    append_task_log(
+        task_id,
+        (
+            f"{source}确认 CDK 已被占用："
+            f"返回邮箱={remote_email or '-'}，状态={remote_status}，"
+            f"success={record.get('success')}，CDK={cdk}；"
+            f"{email_log}，CDK 已移入已使用列表，本任务邮箱={account['email']} 不再提交绑定"
+        ),
+    )
+    return True
+
+
+def is_cdk_status_not_found_error(exc: Exception) -> bool:
+    text = norm_text(str(exc))
+    payload = getattr(exc, "payload", None)
+    if payload is not None:
+        try:
+            text += " " + norm_text(json.dumps(payload, ensure_ascii=False))
+        except TypeError:
+            text += " " + norm_text(payload)
+    return any(
+        marker in text
+        for marker in [
+            "not found",
+            "no record",
+            "not exist",
+            "不存在",
+            "未找到",
+            "没有找到",
+            "无记录",
+            "未使用",
+        ]
+    )
+
+
+def precheck_cdk_before_binding(
+    task_id: str,
+    client: CodexClient,
+    account: dict[str, str],
+    cdk: str,
+) -> bool:
+    update_task(task_id, status="starting", message="正在预查询 CDK 状态")
+    append_task_log(task_id, f"开始预查询 CDK 状态：CDK={cdk}")
+    try:
+        status_data = client.status(cdk=cdk)
+    except AppError as exc:
+        if is_cdk_status_not_found_error(exc):
+            append_task_log(task_id, f"CDK 预查询未发现已使用记录，继续绑定：{str(exc) or exc.__class__.__name__}")
+            return False
+        append_task_log(task_id, f"CDK 预查询失败：{str(exc) or exc.__class__.__name__}")
+        raise
+
+    if apply_used_cdk_status(task_id, status_data, account, cdk, "CDK 预查询"):
+        return True
+
+    append_task_log(
+        task_id,
+        (
+            "CDK 预查询未发现远端占用，继续提交邮箱和 CDK："
+            f"返回CDK={status_data.get('cdk') or '-'}，"
+            f"返回邮箱={status_data.get('email') or '-'}，"
+            f"状态={status_data.get('status') or '-'}，"
+            f"success={status_data.get('success')}"
+        ),
+    )
+    update_task(task_id, status_payload=status_data)
+    return False
 
 
 def reconcile_completed_by_cdk(
@@ -1348,12 +1650,11 @@ def reconcile_completed_by_cdk(
         append_task_log(task_id, f"CDK 反查失败：{str(exc) or exc.__class__.__name__}")
         return False
 
-    matched, remote_task_id = completed_status_matches_account(status_data, account["email"], cdk)
-    if not matched:
+    if not apply_used_cdk_status(task_id, status_data, account, cdk, "CDK 反查"):
         append_task_log(
             task_id,
             (
-                "CDK 反查未确认成功："
+                "CDK 反查未发现远端占用："
                 f"返回CDK={status_data.get('cdk') or '-'}，"
                 f"返回邮箱={status_data.get('email') or '-'}，"
                 f"状态={status_data.get('status') or '-'}，"
@@ -1362,17 +1663,6 @@ def reconcile_completed_by_cdk(
         )
         return False
 
-    update_task(
-        task_id,
-        codex_task_id=remote_task_id or task_id,
-        status_payload=status_data,
-        message="CDK 反查确认远端已完成",
-    )
-    append_task_log(
-        task_id,
-        f"CDK 反查确认成功：邮箱={account['email']}，CDK={cdk}，远端任务={remote_task_id or '-'}",
-    )
-    finish_task_by_status(task_id, "completed", account["raw"], cdk)
     return True
 
 
@@ -1384,6 +1674,9 @@ def run_automation_task(task_id: str) -> None:
     cdk = task["cdk"]
 
     try:
+        if precheck_cdk_before_binding(task_id, client, account, cdk):
+            return
+
         update_task(task_id, status="starting", message="正在提交邮箱和 CDK")
         not_before_ms = int(time.time() * 1000)
         update_task(task_id, email_request_at_ms=not_before_ms)
@@ -1402,6 +1695,7 @@ def run_automation_task(task_id: str) -> None:
             raise
         remote_task_id = start_data.get("task_id") or start_data.get("id") or task_id
         remote_status = normalize_remote_status(start_data)
+        remote_email_for_finish = str(start_data.get("email") or "")
         update_task(
             task_id,
             codex_task_id=remote_task_id,
@@ -1429,12 +1723,6 @@ def run_automation_task(task_id: str) -> None:
                 code_freshness=describe_mail_time(best_code, not_before_ms),
                 message="已获取邮箱验证码",
             )
-            record_email_status(
-                task["email_record"],
-                has_received_code=True,
-                last_cdk=cdk,
-                last_task_id=task_id,
-            )
             append_task_log(
                 task_id,
                 (
@@ -1444,6 +1732,7 @@ def run_automation_task(task_id: str) -> None:
             )
             submit_data = client.submit_email_code(str(remote_task_id), code)
             remote_status = normalize_remote_status(submit_data)
+            remote_email_for_finish = str(submit_data.get("email") or remote_email_for_finish)
             update_task(task_id, status=remote_status, status_payload=submit_data)
             append_task_log(
                 task_id,
@@ -1454,7 +1743,7 @@ def run_automation_task(task_id: str) -> None:
             )
 
         if remote_status in {"completed", "failed"}:
-            finish_task_by_status(task_id, remote_status, task["email_record"], cdk)
+            finish_task_by_status(task_id, remote_status, task["email_record"], cdk, remote_email=remote_email_for_finish)
             return
 
         poll_remote_status(task_id, client, str(remote_task_id), cdk, config)
@@ -1464,24 +1753,49 @@ def run_automation_task(task_id: str) -> None:
         append_task_log(task_id, "任务失败：" + message)
 
 
-def finish_task_by_status(task_id: str, status: str, email_record: str, cdk: str) -> None:
+def finish_task_by_status(
+    task_id: str,
+    status: str,
+    email_record: str,
+    cdk: str,
+    remote_email: str | None = None,
+) -> None:
     account = parse_email_record(email_record)
     if status == "completed":
-        task = get_task(task_id)
-        status_patch: dict[str, Any] = {
-            "is_registered": True,
-            "last_cdk": cdk,
-            "last_task_id": task_id,
-        }
-        if task.get("email_code"):
-            status_patch["has_received_code"] = True
-        record_email_status(email_record, **status_patch)
-        move_value("cdk", "unused", "used", cdk)
-        update_task(task_id, status="completed", completed_at=now_ts(), message="任务已完成，邮箱已登记为已注册，CDK 已移入已使用列表")
-        append_task_log(task_id, f"任务已完成：邮箱={account['email']} 已登记为已注册，CDK={cdk} 已移入已使用列表")
+        target_record, target_email = completion_email_record(account, remote_email)
+        email_updated = False
+        if target_record:
+            record_email_status(
+                target_record,
+                has_received_code=True,
+                last_cdk=cdk,
+                last_task_id=task_id,
+            )
+            email_updated = True
+        else:
+            append_task_log(task_id, f"远端邮箱 {target_email or '-'} 不在本地邮箱表，仅更新 CDK 状态")
+        move_value(
+            "cdk",
+            "unused",
+            "used",
+            cdk,
+            bound_email=target_email,
+            bound_task_id=task_id,
+        )
+        if target_email and norm_text(target_email) != norm_text(account["email"]) and email_updated:
+            message = "任务已完成，远端邮箱已登记为已接码，CDK 已移入已使用列表"
+            log_email = f"远端邮箱={target_email} 已登记为已接码，本任务邮箱={account['email']} 保持原状态"
+        elif target_email and norm_text(target_email) != norm_text(account["email"]):
+            message = "任务已完成，CDK 已移入已使用列表，远端邮箱未在本地邮箱表"
+            log_email = f"远端邮箱={target_email} 未在本地邮箱表，本任务邮箱={account['email']} 保持原状态"
+        else:
+            message = "任务已完成，邮箱已登记为已接码，CDK 已移入已使用列表"
+            log_email = f"邮箱={account['email']} 已登记为已接码"
+        update_task(task_id, status="completed", completed_at=now_ts(), message=message)
+        append_task_log(task_id, f"任务已完成：{log_email}，CDK={cdk} 已移入已使用列表")
     else:
         update_task(task_id, status="failed", completed_at=now_ts())
-        append_task_log(task_id, f"远端任务失败：邮箱={account['email']} 不写入已注册列表，CDK={cdk} 保留在未使用列表")
+        append_task_log(task_id, f"远端任务失败：邮箱={account['email']} 不写入已接码列表，CDK={cdk} 保留在未使用列表")
 
 
 def poll_remote_status(task_id: str, client: CodexClient, remote_task_id: str, cdk: str, config: dict[str, Any]) -> None:
@@ -1493,7 +1807,7 @@ def poll_remote_status(task_id: str, client: CodexClient, remote_task_id: str, c
         append_task_log(task_id, data.get("message") or f"远端状态：{status}")
         if status in {"completed", "failed"}:
             task = get_task(task_id)
-            finish_task_by_status(task_id, status, task["email_record"], cdk)
+            finish_task_by_status(task_id, status, task["email_record"], cdk, remote_email=str(data.get("email") or ""))
             return
         time.sleep(max(1, int(config["status_poll_interval"])))
     update_task(task_id, status="failed", completed_at=now_ts(), message="轮询远端状态超时")
@@ -1514,17 +1828,9 @@ def filtered_tasks(query: str = "") -> list[dict[str, Any]]:
 
 
 def clear_task_logs(query: str = "") -> dict[str, int]:
-    needle = (query or "").lower().strip()
     with TASK_LOCK:
         tasks = load_tasks()
-        cleared = 0
-        for task in tasks:
-            if needle and needle not in json.dumps(task, ensure_ascii=False).lower():
-                continue
-            if task.get("logs"):
-                task["logs"] = []
-                task["updated_at"] = now_ts()
-                cleared += 1
+        cleared = clear_loaded_task_logs(tasks, query)
         save_tasks(tasks)
     return {"cleared": cleared}
 
@@ -1568,7 +1874,9 @@ def gpt_login_account_payload(record: dict[str, Any] | None) -> dict[str, Any] |
     if not record:
         return None
     status = "completed"
-    if record.get("register_status") == store.EMAIL_STATUS_UNREGISTERED:
+    if record.get("register_status") == store.EMAIL_STATUS_FAILED:
+        status = "failed"
+    elif record.get("register_status") == store.EMAIL_STATUS_UNREGISTERED:
         status = "in_progress" if record.get("reserved_at") else "not_started"
     return {
         "raw": record.get("raw") or "",
@@ -1727,6 +2035,16 @@ class AppHandler(BaseHTTPRequestHandler):
                 body = self.read_json_body()
                 data = update_email_sale_status(body.get("values") or [], bool_value(body.get("is_sold")))
                 self.send_json({"code": 0, "message": "邮箱卖出状态已更新", "data": data})
+                return
+            if path == "/api/email-status":
+                body = self.read_json_body()
+                data = update_email_register_status(body.get("values") or [], str(body.get("status") or ""))
+                self.send_json({"code": 0, "message": "邮箱状态已更新", "data": data})
+                return
+            if path == "/api/cdk-status":
+                body = self.read_json_body()
+                data = update_cdk_statuses(body.get("values") or [], str(body.get("status") or ""))
+                self.send_json({"code": 0, "message": "CDK 状态已更新", "data": data})
                 return
             raise AppError("接口不存在", 404)
         except Exception as exc:

@@ -39,7 +39,7 @@ data/cdks_unused/cdks.txt
 data/cdks_used/cdks.txt
 ```
 
-邮箱注册状态分为 `unregistered`（未注册）、`registered`（已注册）、`received`（已接码）。自动接码任务只消耗 `registered` 邮箱，接码成功后进入 `received`。邮箱售出状态分为 `unsold`（未售出）和 `sold`（已售出），只统计并作用于 `registered` 与 `received` 邮箱。CDK 状态分为 `unused`（未使用）和 `used`（已使用）。
+邮箱注册状态分为 `unregistered`（未注册）、`registered`（已注册）、`received`（已接码）、`failed`（失败）。`gpt-login` 邮箱池里的 `进行中` 是 `unregistered` 邮箱被写入 `reserved_at` 后的占用态，可通过管理页或 `/api/gpt-login/mail-pool/reset` 清回 `not_started`。自动接码任务只消耗 `registered` 邮箱，接码成功后进入 `received`。邮箱售出状态分为 `unsold`（未售出）和 `sold`（已售出），只统计并作用于 `registered` 与 `received` 邮箱。CDK 状态分为 `unused`（未使用）和 `used`（已使用）。
 
 供 `gpt-login` 调用的本地接口：
 
@@ -59,4 +59,10 @@ POST /api/gpt-login/mail-pool/sync
 - `v1`：使用 `/api/v1/codex/start`、`/api/v1/codex/submit-email-code`、`/api/v1/codex/status`。
 - `auto`：优先尝试 `v1`，接口不存在时回退到 `legacy`。
 
-任务完成后，脚本会把对应邮箱登记为已注册或已接码，并把 CDK 标记为已使用；失败时邮箱和 CDK 保留为可继续处理的状态。
+任务开始时第一步只按 CDK 查询远端状态，不会先提交邮箱。只要远端返回该 CDK 已有关联任务或绑定邮箱（包括 running、waiting_email_otp、completed 等状态），脚本会先用远端返回邮箱更新本地状态并把 CDK 标记为已使用，不再继续提交当前邮箱绑定；只有预查询明确未发现远端占用时，才会提交邮箱和 CDK 进入验证码流程。远端 confirmed completed/success=True 时，对应邮箱会登记为已接码。
+
+资源查看页支持单个和批量更新状态：邮箱可在未注册、已注册、已接码、失败之间切换；CDK 可在未使用、已使用之间切换。
+
+每次开始单个或批量任务前，会自动清空已有任务池记录；任务流只显示本轮新创建的任务。
+
+已使用 CDK 会保存绑定邮箱和远端任务关系；已带 `last_cdk` 的已注册邮箱不会再次进入自动绑定调度，避免同一个邮箱被重复绑定。

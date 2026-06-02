@@ -23,17 +23,21 @@ CDK_USED_FILE = DATA_DIR / "cdks_used" / "cdks.txt"
 EMAIL_STATUS_UNREGISTERED = "unregistered"
 EMAIL_STATUS_REGISTERED = "registered"
 EMAIL_STATUS_RECEIVED = "received"
+EMAIL_STATUS_FAILED = "failed"
 EMAIL_STATUSES = {
     EMAIL_STATUS_UNREGISTERED,
     EMAIL_STATUS_REGISTERED,
     EMAIL_STATUS_RECEIVED,
+    EMAIL_STATUS_FAILED,
 }
 EMAIL_STATUS_PRIORITY = {
+    EMAIL_STATUS_FAILED: 0,
     EMAIL_STATUS_UNREGISTERED: 0,
     EMAIL_STATUS_REGISTERED: 1,
     EMAIL_STATUS_RECEIVED: 2,
 }
 EMAIL_SOURCE_MAPPING_VERSION = "2026-06-02-email-source-files-v2"
+CDK_BINDING_BACKFILL_VERSION = "2026-06-02-cdk-binding-v1"
 SALE_STATUS_UNSOLD = "unsold"
 SALE_STATUS_SOLD = "sold"
 SALE_STATUSES = {SALE_STATUS_UNSOLD, SALE_STATUS_SOLD}
@@ -67,7 +71,7 @@ def init_db() -> None:
               client_id TEXT NOT NULL DEFAULT '',
               refresh_token TEXT NOT NULL DEFAULT '',
               register_status TEXT NOT NULL DEFAULT 'unregistered'
-                CHECK (register_status IN ('unregistered', 'registered', 'received')),
+                CHECK (register_status IN ('unregistered', 'registered', 'received', 'failed')),
               sale_status TEXT NOT NULL DEFAULT 'unsold'
                 CHECK (sale_status IN ('unsold', 'sold')),
               reserved_by TEXT NOT NULL DEFAULT '',
@@ -88,6 +92,9 @@ def init_db() -> None:
               cdk TEXT PRIMARY KEY,
               status TEXT NOT NULL DEFAULT 'unused'
                 CHECK (status IN ('unused', 'used')),
+              bound_email TEXT NOT NULL DEFAULT '',
+              bound_task_id TEXT NOT NULL DEFAULT '',
+              bound_at INTEGER,
               created_at INTEGER NOT NULL,
               updated_at INTEGER NOT NULL
             );
@@ -101,6 +108,8 @@ def init_db() -> None:
             );
             """
         )
+        ensure_failed_email_status(conn)
+        ensure_cdk_binding_columns(conn)
         done = conn.execute(
             "SELECT value FROM metadata WHERE key = ?",
             ("legacy_import_done",),
@@ -127,6 +136,129 @@ def init_db() -> None:
                 """,
                 ("email_source_mapping_version", EMAIL_SOURCE_MAPPING_VERSION),
             )
+        binding_backfill = conn.execute(
+            "SELECT value FROM metadata WHERE key = ?",
+            ("cdk_binding_backfill_version",),
+        ).fetchone()
+        if not binding_backfill or str(binding_backfill["value"]) != CDK_BINDING_BACKFILL_VERSION:
+            backfill_cdk_bindings(conn)
+            conn.execute(
+                """
+                INSERT INTO metadata (key, value) VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                ("cdk_binding_backfill_version", CDK_BINDING_BACKFILL_VERSION),
+            )
+
+
+def ensure_cdk_binding_columns(conn: sqlite3.Connection) -> None:
+    rows = conn.execute("PRAGMA table_info(cdks)").fetchall()
+    columns = {str(row["name"]) for row in rows}
+    if "bound_email" not in columns:
+        conn.execute("ALTER TABLE cdks ADD COLUMN bound_email TEXT NOT NULL DEFAULT ''")
+    if "bound_task_id" not in columns:
+        conn.execute("ALTER TABLE cdks ADD COLUMN bound_task_id TEXT NOT NULL DEFAULT ''")
+    if "bound_at" not in columns:
+        conn.execute("ALTER TABLE cdks ADD COLUMN bound_at INTEGER")
+
+
+def backfill_cdk_bindings(conn: sqlite3.Connection) -> None:
+    now = now_ts()
+    conn.execute(
+        """
+        UPDATE cdks
+           SET status = 'used',
+               bound_email = COALESCE((
+                   SELECT email
+                     FROM emails
+                    WHERE emails.last_cdk = cdks.cdk
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+               ), bound_email),
+               bound_task_id = COALESCE((
+                   SELECT last_task_id
+                     FROM emails
+                    WHERE emails.last_cdk = cdks.cdk
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+               ), bound_task_id),
+               bound_at = COALESCE(bound_at, (
+                   SELECT COALESCE(code_received_at, registered_at, updated_at)
+                     FROM emails
+                    WHERE emails.last_cdk = cdks.cdk
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+               ), ?),
+               updated_at = MAX(updated_at, ?)
+         WHERE cdk IN (
+               SELECT last_cdk FROM emails WHERE last_cdk IS NOT NULL AND last_cdk != ''
+         )
+        """,
+        (now, now),
+    )
+
+
+def ensure_failed_email_status(conn: sqlite3.Connection) -> None:
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'emails'"
+    ).fetchone()
+    table_sql = str(row["sql"] or "").lower() if row else ""
+    if "'failed'" in table_sql or '"failed"' in table_sql:
+        return
+
+    conn.executescript(
+        """
+        DROP INDEX IF EXISTS idx_emails_status;
+        DROP TABLE IF EXISTS emails_status_migration_old;
+        ALTER TABLE emails RENAME TO emails_status_migration_old;
+
+        CREATE TABLE emails (
+          email TEXT PRIMARY KEY,
+          raw TEXT NOT NULL DEFAULT '',
+          password TEXT NOT NULL DEFAULT '',
+          client_id TEXT NOT NULL DEFAULT '',
+          refresh_token TEXT NOT NULL DEFAULT '',
+          register_status TEXT NOT NULL DEFAULT 'unregistered'
+            CHECK (register_status IN ('unregistered', 'registered', 'received', 'failed')),
+          sale_status TEXT NOT NULL DEFAULT 'unsold'
+            CHECK (sale_status IN ('unsold', 'sold')),
+          reserved_by TEXT NOT NULL DEFAULT '',
+          reserved_at INTEGER,
+          registered_at INTEGER,
+          code_received_at INTEGER,
+          sold_at INTEGER,
+          last_cdk TEXT NOT NULL DEFAULT '',
+          last_task_id TEXT NOT NULL DEFAULT '',
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+
+        INSERT INTO emails (
+          email, raw, password, client_id, refresh_token, register_status,
+          sale_status, reserved_by, reserved_at, registered_at, code_received_at,
+          sold_at, last_cdk, last_task_id, created_at, updated_at
+        )
+        SELECT
+          email, raw, password, client_id, refresh_token,
+          CASE
+            WHEN register_status IN ('unregistered', 'registered', 'received', 'failed')
+              THEN register_status
+            ELSE 'unregistered'
+          END,
+          CASE
+            WHEN sale_status IN ('unsold', 'sold') THEN sale_status
+            ELSE 'unsold'
+          END,
+          reserved_by, reserved_at, registered_at, code_received_at,
+          sold_at, last_cdk, last_task_id, created_at, updated_at
+        FROM emails_status_migration_old;
+
+        DROP TABLE emails_status_migration_old;
+
+        CREATE INDEX IF NOT EXISTS idx_emails_status
+          ON emails (register_status, sale_status, reserved_at, updated_at);
+        """
+    )
 
 
 def read_lines(path: Path) -> list[str]:
@@ -363,7 +495,11 @@ def upsert_cdk(conn: sqlite3.Connection, cdk: str, status: str = CDK_STATUS_UNUS
     row = conn.execute("SELECT status FROM cdks WHERE cdk = ?", (value,)).fetchone()
     if not row:
         conn.execute(
-            "INSERT INTO cdks (cdk, status, created_at, updated_at) VALUES (?, ?, ?, ?)",
+            """
+            INSERT INTO cdks (
+              cdk, status, bound_email, bound_task_id, bound_at, created_at, updated_at
+            ) VALUES (?, ?, '', '', NULL, ?, ?)
+            """,
             (value, status, now, now),
         )
         return
@@ -372,6 +508,18 @@ def upsert_cdk(conn: sqlite3.Connection, cdk: str, status: str = CDK_STATUS_UNUS
             "UPDATE cdks SET status = ?, updated_at = ? WHERE cdk = ?",
             (CDK_STATUS_USED, now, value),
         )
+
+
+def row_to_cdk_record(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "cdk": row["cdk"],
+        "status": row["status"],
+        "bound_email": row["bound_email"] or "",
+        "bound_task_id": row["bound_task_id"] or "",
+        "bound_at": row["bound_at"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
 
 
 def row_to_email_record(row: sqlite3.Row) -> dict[str, Any]:
@@ -388,6 +536,7 @@ def row_to_email_record(row: sqlite3.Row) -> dict[str, Any]:
         "sale_status": sale_status,
         "is_registered": status in {EMAIL_STATUS_REGISTERED, EMAIL_STATUS_RECEIVED},
         "has_received_code": status == EMAIL_STATUS_RECEIVED,
+        "is_failed": status == EMAIL_STATUS_FAILED,
         "is_sold": sale_status == SALE_STATUS_SOLD,
         "registered_at": row["registered_at"],
         "code_received_at": row["code_received_at"],
@@ -416,6 +565,7 @@ def available_email_accounts(active_keys: set[str] | None = None) -> list[dict[s
              WHERE register_status = ?
                AND sale_status = ?
                AND (reserved_at IS NULL OR reserved_at = 0)
+               AND COALESCE(last_cdk, '') = ''
              ORDER BY created_at ASC, email ASC
             """,
             (EMAIL_STATUS_REGISTERED, SALE_STATUS_UNSOLD),
@@ -477,7 +627,7 @@ def list_emails(
     sale_filter = (sale_filter or SALE_STATUS_UNSOLD).strip().lower()
     page_number, size = normalize_page(page, page_size)
     if status_filter not in EMAIL_STATUSES | {"marketable", "all"}:
-        raise ValueError("邮箱状态只能是 unregistered、registered、received、marketable 或 all")
+        raise ValueError("邮箱状态只能是 unregistered、registered、received、failed、marketable 或 all")
     if sale_filter not in {"all", SALE_STATUS_UNSOLD, SALE_STATUS_SOLD}:
         raise ValueError("销售状态只能是 all、unsold 或 sold")
 
@@ -537,7 +687,7 @@ def update_email_sale(values: list[str], is_sold: bool) -> dict[str, int]:
             if not row:
                 skipped += 1
                 continue
-            if str(row["register_status"]) == EMAIL_STATUS_UNREGISTERED:
+            if str(row["register_status"]) not in {EMAIL_STATUS_REGISTERED, EMAIL_STATUS_RECEIVED}:
                 skipped += 1
                 continue
             conn.execute(
@@ -549,6 +699,69 @@ def update_email_sale(values: list[str], is_sold: bool) -> dict[str, int]:
                 (SALE_STATUS_SOLD if is_sold else SALE_STATUS_UNSOLD, now if is_sold else None, now, key),
             )
             updated += 1
+    return {"updated": updated, "skipped": skipped}
+
+
+def update_email_register_status(values: list[str], register_status: str) -> dict[str, int]:
+    targets = {email_key(value) for value in values if email_key(value)}
+    if not targets:
+        raise ValueError("请选择要更新的邮箱")
+    if register_status not in EMAIL_STATUSES:
+        raise ValueError("邮箱状态只能是 unregistered、registered、received 或 failed")
+
+    now = now_ts()
+    updated = 0
+    skipped = 0
+    with connect() as conn:
+        for key in targets:
+            row = conn.execute("SELECT email FROM emails WHERE email = ?", (key,)).fetchone()
+            if not row:
+                skipped += 1
+                continue
+
+            set_parts = [
+                "register_status = ?",
+                "reserved_by = ''",
+                "reserved_at = NULL",
+                "updated_at = ?",
+            ]
+            params: list[Any] = [register_status, now]
+
+            if register_status == EMAIL_STATUS_UNREGISTERED:
+                set_parts.extend([
+                    "sale_status = ?",
+                    "registered_at = NULL",
+                    "code_received_at = NULL",
+                    "last_cdk = ''",
+                    "last_task_id = ''",
+                ])
+                params.append(SALE_STATUS_UNSOLD)
+            elif register_status == EMAIL_STATUS_REGISTERED:
+                set_parts.extend([
+                    "registered_at = COALESCE(registered_at, ?)",
+                    "code_received_at = NULL",
+                    "last_cdk = ''",
+                    "last_task_id = ''",
+                ])
+                params.append(now)
+            elif register_status == EMAIL_STATUS_RECEIVED:
+                set_parts.extend([
+                    "registered_at = COALESCE(registered_at, ?)",
+                    "code_received_at = COALESCE(code_received_at, ?)",
+                ])
+                params.extend([now, now])
+            elif register_status == EMAIL_STATUS_FAILED:
+                set_parts.extend([
+                    "sale_status = ?",
+                    "code_received_at = NULL",
+                    "last_cdk = ''",
+                    "last_task_id = ''",
+                ])
+                params.append(SALE_STATUS_UNSOLD)
+
+            params.append(key)
+            cur = conn.execute(f"UPDATE emails SET {', '.join(set_parts)} WHERE email = ?", params)
+            updated += cur.rowcount
     return {"updated": updated, "skipped": skipped}
 
 
@@ -576,6 +789,27 @@ def cdk_values(status: str) -> list[str]:
             (status,),
         ).fetchall()
     return [str(row["cdk"]) for row in rows]
+
+
+def list_cdk_records(status: str, query: str = "") -> list[dict[str, Any]]:
+    status = normalize_cdk_status(status)
+    needle = (query or "").strip().lower()
+    where = ["status = ?"]
+    params: list[Any] = [status]
+    if needle:
+        where.append("(LOWER(cdk) LIKE ? OR LOWER(bound_email) LIKE ?)")
+        like = f"%{needle}%"
+        params.extend([like, like])
+    with connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT * FROM cdks
+             WHERE {' AND '.join(where)}
+             ORDER BY created_at ASC, cdk ASC
+            """,
+            params,
+        ).fetchall()
+    return [row_to_cdk_record(row) for row in rows]
 
 
 def list_cdks(status: str, query: str = "") -> list[str]:
@@ -637,17 +871,93 @@ def delete_cdks(values: list[str], status: str) -> dict[str, int]:
     return {"removed": removed}
 
 
-def move_cdk(value: str, to_status: str) -> None:
+def update_cdks_status(values: list[str], status: str) -> dict[str, int]:
+    status = normalize_cdk_status(status)
+    targets = {str(value or "").strip() for value in values if str(value or "").strip()}
+    if not targets:
+        raise ValueError("请选择要更新的 CDK")
+    now = now_ts()
+    updated = 0
+    skipped = 0
+    with connect() as conn:
+        for value in targets:
+            row = conn.execute("SELECT cdk FROM cdks WHERE cdk = ?", (value,)).fetchone()
+            if not row:
+                skipped += 1
+                continue
+            if status == CDK_STATUS_UNUSED:
+                cur = conn.execute(
+                    """
+                    UPDATE cdks
+                       SET status = ?, bound_email = '', bound_task_id = '',
+                           bound_at = NULL, updated_at = ?
+                     WHERE cdk = ?
+                    """,
+                    (status, now, value),
+                )
+            else:
+                cur = conn.execute(
+                    """
+                    UPDATE cdks
+                       SET status = ?, bound_at = COALESCE(bound_at, ?), updated_at = ?
+                     WHERE cdk = ?
+                    """,
+                    (status, now, now, value),
+                )
+            updated += cur.rowcount
+    return {"updated": updated, "skipped": skipped}
+
+
+def move_cdk(
+    value: str,
+    to_status: str,
+    bound_email: str = "",
+    bound_task_id: str = "",
+) -> None:
     cdk = str(value or "").strip()
     if not cdk:
         return
     to_status = normalize_cdk_status(to_status)
+    bound_key = email_key(bound_email)
+    task_id = str(bound_task_id or "").strip()
+    now = now_ts()
     with connect() as conn:
         upsert_cdk(conn, cdk, to_status)
-        conn.execute(
-            "UPDATE cdks SET status = ?, updated_at = ? WHERE cdk = ?",
-            (to_status, now_ts(), cdk),
-        )
+        if to_status == CDK_STATUS_UNUSED:
+            conn.execute(
+                """
+                UPDATE cdks
+                   SET status = ?, bound_email = '', bound_task_id = '',
+                       bound_at = NULL, updated_at = ?
+                 WHERE cdk = ?
+                """,
+                (to_status, now, cdk),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE cdks
+                   SET status = ?,
+                       bound_email = CASE WHEN ? != '' THEN ? ELSE bound_email END,
+                       bound_task_id = CASE WHEN ? != '' THEN ? ELSE bound_task_id END,
+                       bound_at = CASE WHEN ? != '' OR ? != '' THEN ? ELSE COALESCE(bound_at, ?) END,
+                       updated_at = ?
+                 WHERE cdk = ?
+                """,
+                (
+                    to_status,
+                    bound_key,
+                    bound_key,
+                    task_id,
+                    task_id,
+                    bound_key,
+                    task_id,
+                    now,
+                    now,
+                    now,
+                    cdk,
+                ),
+            )
 
 
 def claim_email(owner: str = "gpt-login") -> dict[str, Any] | None:
@@ -703,21 +1013,31 @@ def mark_gpt_login_email(email: str, status: str) -> None:
             conn.execute(
                 """
                 UPDATE emails
-                   SET reserved_by = ?, reserved_at = COALESCE(reserved_at, ?), updated_at = ?
+                   SET register_status = ?, sale_status = ?,
+                       reserved_by = ?, reserved_at = COALESCE(reserved_at, ?), updated_at = ?
                  WHERE email = ?
                 """,
-                ("gpt-login", now, now, key),
+                (EMAIL_STATUS_UNREGISTERED, SALE_STATUS_UNSOLD, "gpt-login", now, now, key),
             )
-        elif status in {"failed", "not_started"}:
+        elif status == "not_started":
             conn.execute(
                 """
                 UPDATE emails
-                   SET register_status = ?,
+                   SET register_status = ?, sale_status = ?,
                        reserved_by = '', reserved_at = NULL, updated_at = ?
                  WHERE email = ?
-                   AND register_status = ?
                 """,
-                (EMAIL_STATUS_UNREGISTERED, now, key, EMAIL_STATUS_UNREGISTERED),
+                (EMAIL_STATUS_UNREGISTERED, SALE_STATUS_UNSOLD, now, key),
+            )
+        elif status == "failed":
+            conn.execute(
+                """
+                UPDATE emails
+                   SET register_status = ?, sale_status = ?,
+                       reserved_by = '', reserved_at = NULL, updated_at = ?
+                 WHERE email = ?
+                """,
+                (EMAIL_STATUS_FAILED, SALE_STATUS_UNSOLD, now, key),
             )
         else:
             raise ValueError("邮箱状态只能是 not_started、in_progress、completed 或 failed")
@@ -745,6 +1065,7 @@ def stats(active_email_keys: set[str] | None = None, active_cdks: set[str] | Non
               SUM(CASE WHEN register_status = 'unregistered' THEN 1 ELSE 0 END) AS emails_unregistered,
               SUM(CASE WHEN register_status = 'registered' THEN 1 ELSE 0 END) AS emails_registered,
               SUM(CASE WHEN register_status = 'received' THEN 1 ELSE 0 END) AS emails_received,
+              SUM(CASE WHEN register_status = 'failed' THEN 1 ELSE 0 END) AS emails_failed,
               SUM(CASE WHEN register_status IN ('registered', 'received')
                         AND sale_status = 'unsold' THEN 1 ELSE 0 END) AS emails_unsold,
               SUM(CASE WHEN register_status IN ('registered', 'received')
@@ -773,6 +1094,7 @@ def stats(active_email_keys: set[str] | None = None, active_cdks: set[str] | Non
         "emails_unregistered": int(row["emails_unregistered"] or 0),
         "emails_registered": int(row["emails_registered"] or 0),
         "emails_received_code": int(row["emails_received"] or 0),
+        "emails_failed": int(row["emails_failed"] or 0),
         "emails_unsold": int(row["emails_unsold"] or 0),
         "emails_sold": int(row["emails_sold"] or 0),
         "emails_source_total": int(row["emails_total"] or 0),
@@ -802,12 +1124,24 @@ def mail_pool_summary() -> dict[str, Any]:
     items: list[dict[str, Any]] = []
     for row in rows:
         record = row_to_email_record(row)
-        if record["register_status"] == EMAIL_STATUS_UNREGISTERED:
+        if record["register_status"] == EMAIL_STATUS_FAILED:
+            status = "failed"
+        elif record["register_status"] == EMAIL_STATUS_UNREGISTERED:
             status = "in_progress" if record["reserved_at"] else "not_started"
         else:
             status = "completed"
         summary[status] += 1
-        items.append({"email": record["email"], "status": status})
+        items.append(
+            {
+                "email": record["email"],
+                "raw": record["raw"],
+                "status": status,
+                "register_status": record["register_status"],
+                "reserved_by": record["reserved_by"],
+                "reserved_at": record["reserved_at"],
+                "updated_at": record["updated_at"],
+            }
+        )
     return {
         "summary": summary,
         "rows": items,
