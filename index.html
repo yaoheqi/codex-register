@@ -1473,6 +1473,25 @@
       font-weight: 800;
     }
 
+    .search-box {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: min(420px, 100%);
+    }
+
+    .search-box input {
+      min-width: 220px;
+      height: 38px;
+      font-size: 13px;
+      font-weight: 750;
+      background: #ffffff;
+    }
+
+    .search-box .small-button {
+      min-height: 38px;
+    }
+
     .inventory-pane {
       display: none;
       gap: 16px;
@@ -1527,6 +1546,10 @@
       display: flex;
       align-items: flex-start;
       padding-top: 3px;
+    }
+
+    .cdk-row {
+      grid-template-columns: minmax(0, 1fr) auto;
     }
 
     .resource-detail-panel {
@@ -1721,6 +1744,15 @@
         flex: 1;
       }
 
+      .search-box {
+        width: 100%;
+      }
+
+      .search-box input {
+        min-width: 0;
+        flex: 1;
+      }
+
       .workspace-footer {
         display: grid;
       }
@@ -1884,6 +1916,11 @@
                   </div>
                 </div>
                 <div class="inventory-actions">
+                  <form id="emailSearchForm" class="search-box">
+                    <input id="emailSearch" type="search" autocomplete="off" placeholder="搜索邮箱、client_id 或 CDK">
+                    <button class="small-button" type="submit">搜索</button>
+                    <button id="clearEmailSearch" class="small-button" type="button">清空</button>
+                  </form>
                   <div class="selection-actions">
                     <label class="select-all" for="selectEmailsPage">
                       <input id="selectEmailsPage" type="checkbox">
@@ -1904,7 +1941,11 @@
                   <button class="segment active" data-cdk-bucket="unused">未使用 CDK</button>
                   <button class="segment" data-cdk-bucket="used">已使用 CDK</button>
                 </div>
-                <div class="inventory-summary">CDK 资源</div>
+                <form id="cdkSearchForm" class="search-box">
+                  <input id="cdkSearch" type="search" autocomplete="off" placeholder="搜索 CDK">
+                  <button class="small-button" type="submit">搜索</button>
+                  <button id="clearCdkSearch" class="small-button" type="button">清空</button>
+                </form>
               </div>
               <div id="cdkList" class="resource-list"></div>
               <div id="cdkPagination" class="pager"></div>
@@ -1927,10 +1968,12 @@
       emailSale: 'unsold',
       emailPage: 1,
       emailPageSize: 20,
+      emailQuery: '',
       selectedEmails: new Set(),
       cdkBucket: 'unused',
       cdkPage: 1,
       cdkPageSize: 20,
+      cdkQuery: '',
       emails: null,
       cdks: null,
       toastTimer: null,
@@ -2095,6 +2138,7 @@
       const params = new URLSearchParams({
         status: state.emailStatus,
         sale: state.emailSale,
+        q: state.emailQuery,
         page: String(state.emailPage),
         page_size: String(state.emailPageSize),
       });
@@ -2112,6 +2156,7 @@
       const params = new URLSearchParams({
         kind: 'cdk',
         bucket: state.cdkBucket,
+        q: state.cdkQuery,
         page: String(state.cdkPage),
         page_size: String(state.cdkPageSize),
       });
@@ -2181,7 +2226,7 @@
       const list = $('emailList');
       const items = state.emails?.items || [];
       if (!items.length) {
-        list.innerHTML = '<div class="empty">暂无邮箱记录</div>';
+        list.innerHTML = `<div class="empty">${state.emailQuery ? '没有匹配的邮箱' : '暂无邮箱记录'}</div>`;
         renderPager('emailPagination', 'email', state.emails || {});
         updateEmailSelectionControls();
         return;
@@ -2235,18 +2280,21 @@
       const list = $('cdkList');
       const items = state.cdks?.items || [];
       if (!items.length) {
-        list.innerHTML = '<div class="empty">暂无 CDK</div>';
+        list.innerHTML = `<div class="empty">${state.cdkQuery ? '没有匹配的 CDK' : '暂无 CDK'}</div>`;
         renderPager('cdkPagination', 'cdk', state.cdks || {});
         return;
       }
 
       list.innerHTML = items.map((item) => `
-        <div class="resource-row">
+        <div class="resource-row cdk-row">
           <div class="resource-main">
             <div class="resource-name">${escapeHtml(compact(item.label || item.value, 20, 12))}</div>
             <div class="resource-meta">${escapeHtml(item.preview || '')}</div>
           </div>
-          <span class="badge">${state.cdkBucket === 'used' ? '已使用' : '未使用'}</span>
+          <div class="resource-actions">
+            <span class="badge">${state.cdkBucket === 'used' ? '已使用' : '未使用'}</span>
+            <button class="small-button danger-button" data-cdk-delete="${escapeHtml(item.value || '')}">删除</button>
+          </div>
         </div>
       `).join('');
       renderPager('cdkPagination', 'cdk', state.cdks || {});
@@ -2317,6 +2365,17 @@
       state.selectedEmails.delete(normalizeEmailValue(email));
       toast('邮箱已删除');
       await Promise.all([loadStats(), loadEmails()]);
+    }
+
+    async function deleteCdk(cdk) {
+      if (!cdk) return;
+      if (!confirm(`确定删除当前列表中的 CDK？\n${cdk}`)) return;
+      await api('/api/list', {
+        method: 'DELETE',
+        body: { kind: 'cdk', bucket: state.cdkBucket, values: [cdk] },
+      });
+      toast('CDK 已删除');
+      await Promise.all([loadStats(), loadCdks()]);
     }
 
     function downloadText(filename, text) {
@@ -2400,6 +2459,36 @@
         return;
       }
       state.cdkPageSize = nextSize;
+      state.cdkPage = 1;
+      loadCdks().catch((err) => toast(err.message));
+    }
+
+    function applyEmailSearch() {
+      state.emailQuery = $('emailSearch').value.trim();
+      state.emailPage = 1;
+      state.selectedEmails.clear();
+      loadEmails().catch((err) => toast(err.message));
+    }
+
+    function clearEmailSearch() {
+      $('emailSearch').value = '';
+      if (!state.emailQuery) return;
+      state.emailQuery = '';
+      state.emailPage = 1;
+      state.selectedEmails.clear();
+      loadEmails().catch((err) => toast(err.message));
+    }
+
+    function applyCdkSearch() {
+      state.cdkQuery = $('cdkSearch').value.trim();
+      state.cdkPage = 1;
+      loadCdks().catch((err) => toast(err.message));
+    }
+
+    function clearCdkSearch() {
+      $('cdkSearch').value = '';
+      if (!state.cdkQuery) return;
+      state.cdkQuery = '';
       state.cdkPage = 1;
       loadCdks().catch((err) => toast(err.message));
     }
@@ -2526,6 +2615,16 @@
       $('selectEmailsPage').addEventListener('change', (event) => {
         setCurrentPageEmailSelection(event.target.checked);
       });
+      $('emailSearchForm').addEventListener('submit', (event) => {
+        event.preventDefault();
+        applyEmailSearch();
+      });
+      $('clearEmailSearch').addEventListener('click', clearEmailSearch);
+      $('cdkSearchForm').addEventListener('submit', (event) => {
+        event.preventDefault();
+        applyCdkSearch();
+      });
+      $('clearCdkSearch').addEventListener('click', clearCdkSearch);
       document.querySelectorAll('[data-open-resource]').forEach((card) => {
         const open = () => {
           openResourcePage({
@@ -2612,6 +2711,16 @@
           state.selectedEmails.delete(email);
         }
         renderEmails();
+      });
+      $('cdkList').addEventListener('click', (event) => {
+        const deleteButton = event.target.closest('[data-cdk-delete]');
+        if (!deleteButton) return;
+        const cdk = deleteButton.dataset.cdkDelete || '';
+        deleteButton.disabled = true;
+        deleteCdk(cdk).catch((err) => {
+          deleteButton.disabled = false;
+          toast(err.message);
+        });
       });
       ['emailPagination', 'cdkPagination'].forEach((id) => {
         $(id).addEventListener('click', (event) => {
