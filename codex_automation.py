@@ -36,8 +36,6 @@ import resource_store as store
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 
-CDK_UNUSED_FILE = DATA_DIR / "cdks_unused" / "cdks.txt"
-CDK_USED_FILE = DATA_DIR / "cdks_used" / "cdks.txt"
 TASKS_FILE = DATA_DIR / "tasks.json"
 CONFIG_FILE = DATA_DIR / "config.json"
 INDEX_FILE = ROOT / "index.html"
@@ -195,25 +193,6 @@ def write_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def read_lines(path: Path) -> list[str]:
-    if not path.exists():
-        return []
-    lines: list[str] = []
-    for line in path.read_text(encoding="utf-8-sig").splitlines():
-        value = line.strip()
-        if value:
-            lines.append(value)
-    return lines
-
-
-def write_lines(path: Path, lines: list[str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    content = "\n".join(lines)
-    if content:
-        content += "\n"
-    path.write_text(content, encoding="utf-8")
-
-
 def email_key(email: str) -> str:
     return str(email or "").strip().lower()
 
@@ -224,27 +203,6 @@ def bool_value(value: Any) -> bool:
     if isinstance(value, (int, float)):
         return bool(value)
     return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on", "已"}
-
-
-def build_email_status_record(account: dict[str, str], current: dict[str, Any] | None = None) -> dict[str, Any]:
-    current = current or {}
-    return {
-        "email": account["email"],
-        "raw": account.get("raw") or "",
-        "password": account.get("password") or "",
-        "client_id": account.get("client_id") or "",
-        "refresh_token": account.get("refresh_token") or "",
-        "is_registered": bool_value(current.get("is_registered")),
-        "has_received_code": bool_value(current.get("has_received_code")),
-        "is_sold": bool_value(current.get("is_sold")),
-        "registered_at": current.get("registered_at"),
-        "code_received_at": current.get("code_received_at"),
-        "sold_at": current.get("sold_at"),
-        "last_cdk": current.get("last_cdk") or "",
-        "last_task_id": current.get("last_task_id") or "",
-        "created_at": current.get("created_at") or now_ts(),
-        "updated_at": current.get("updated_at") or now_ts(),
-    }
 
 
 def parse_optional_email_record(line: str) -> dict[str, str] | None:
@@ -384,16 +342,6 @@ def export_email_statuses(body: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def item_file(kind: str, bucket: str) -> Path:
-    if kind not in {"email", "cdk"}:
-        raise AppError("类型只能是 email 或 cdk")
-    if bucket not in {"unused", "used"}:
-        raise AppError("列表只能是 unused 或 used")
-    if kind == "email":
-        raise AppError("邮箱已由 SQLite 邮箱状态表维护，请使用 /api/emails")
-    return CDK_UNUSED_FILE if bucket == "unused" else CDK_USED_FILE
-
-
 def load_config() -> dict[str, Any]:
     with DATA_LOCK:
         config = DEFAULT_CONFIG | read_json(CONFIG_FILE, {})
@@ -469,21 +417,6 @@ def normalize_values(kind: str, text: str | list[str]) -> list[str]:
             raise AppError("类型只能是 email 或 cdk")
         values.append(value)
     return values
-
-
-def display_item(kind: str, value: str, index: int) -> dict[str, Any]:
-    if kind == "email":
-        try:
-            account = parse_email_record(value)
-            label = account["email"]
-            preview = f'{account["email"]} ---- {account["client_id"]} ---- {mask_secret(account["refresh_token"])}'
-        except AppError:
-            label = value.split("----", 1)[0]
-            preview = mask_secret(value)
-    else:
-        label = value
-        preview = mask_secret(value)
-    return {"index": index, "value": value, "label": label, "preview": preview}
 
 
 def display_cdk_record(record: dict[str, Any], index: int) -> dict[str, Any]:
@@ -765,19 +698,6 @@ def build_automation_task(email_record: str, cdk: str) -> dict[str, Any]:
         "completed_at": None,
         "logs": [{"time": iso_time(), "message": first_log}],
     }
-
-
-def clear_loaded_task_logs(tasks: list[dict[str, Any]], query: str = "") -> int:
-    needle = (query or "").lower().strip()
-    cleared = 0
-    for task in tasks:
-        if needle and needle not in json.dumps(task, ensure_ascii=False).lower():
-            continue
-        if task.get("logs"):
-            task["logs"] = []
-            task["updated_at"] = now_ts()
-            cleared += 1
-    return cleared
 
 
 def clear_task_pool() -> int:
@@ -1827,14 +1747,6 @@ def filtered_tasks(query: str = "") -> list[dict[str, Any]]:
     return result
 
 
-def clear_task_logs(query: str = "") -> dict[str, int]:
-    with TASK_LOCK:
-        tasks = load_tasks()
-        cleared = clear_loaded_task_logs(tasks, query)
-        save_tasks(tasks)
-    return {"cleared": cleared}
-
-
 def reconcile_failed_completed_tasks(query: str = "") -> dict[str, int]:
     needle = (query or "").lower().strip()
     client = CodexClient(load_config())
@@ -2061,10 +1973,6 @@ class AppHandler(BaseHTTPRequestHandler):
             if path == "/api/emails":
                 data = delete_email_statuses(body.get("values") or [])
                 self.send_json({"code": 0, "message": "邮箱已删除", "data": data})
-                return
-            if path == "/api/task-logs":
-                data = clear_task_logs(str(body.get("q") or ""))
-                self.send_json({"code": 0, "message": "日志已清空", "data": data})
                 return
             raise AppError("接口不存在", 404)
         except Exception as exc:

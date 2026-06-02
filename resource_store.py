@@ -812,15 +812,6 @@ def list_cdk_records(status: str, query: str = "") -> list[dict[str, Any]]:
     return [row_to_cdk_record(row) for row in rows]
 
 
-def list_cdks(status: str, query: str = "") -> list[str]:
-    status = normalize_cdk_status(status)
-    needle = (query or "").strip().lower()
-    values = cdk_values(status)
-    if needle:
-        values = [value for value in values if needle in value.lower()]
-    return values
-
-
 def add_cdks(values: list[str], status: str = CDK_STATUS_UNUSED) -> dict[str, int]:
     status = normalize_cdk_status(status)
     added = 0
