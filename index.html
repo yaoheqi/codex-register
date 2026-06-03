@@ -663,7 +663,7 @@
       white-space: nowrap;
     }
 
-    .badge.completed {
+    .badge.rt {
       border-color: #abe3c5;
       background: var(--green-soft);
       color: var(--green);
@@ -1606,7 +1606,7 @@
         const id = String(item.id || '');
         return `
           <tr class="resource-row ${id === state.activeCredentialId ? 'is-active' : ''}" data-credential-open="${escapeHtml(id)}">
-            <td><span class="badge ${item.has_refresh_token ? 'completed' : 'summary'}">${item.has_refresh_token ? 'RT' : '摘要'}</span></td>
+            <td><span class="badge ${item.has_refresh_token ? 'rt' : 'summary'}">${item.has_refresh_token ? 'RT' : '摘要'}</span></td>
             <td>
               <div class="cell-main">
                 <div class="resource-name">${copyButton(credentialTitle(item), '凭据标识', credentialTitle(item))}</div>
@@ -1835,7 +1835,7 @@
 
     async function resetMailPoolReservations() {
       const summary = state.mailPool?.summary || {};
-      const count = Number(summary.reserved || summary.in_progress || 0);
+      const count = Number(summary.reserved || 0);
       if (!count) {
         toast('当前没有占用中的邮箱');
         return;

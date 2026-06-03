@@ -555,13 +555,7 @@ def mark_gpt_login_email(email: str, status: str) -> None:
     key = email_key(email)
     if not key:
         raise ValueError("缺少邮箱")
-    status = str(status or "").strip().lower()
-    status_aliases = {
-        "not_started": EMAIL_STATUS_UNREGISTERED,
-        "in_progress": EMAIL_STATUS_UNREGISTERED,
-        "completed": EMAIL_STATUS_REGISTERED,
-    }
-    target_status = status_aliases.get(status, status)
+    target_status = str(status or "").strip().lower()
     now = now_ts()
     with connect() as conn:
         row = conn.execute("SELECT * FROM emails WHERE email = ?", (key,)).fetchone()
@@ -590,16 +584,6 @@ def mark_gpt_login_email(email: str, status: str) -> None:
                  WHERE email = ?
                 """,
                 (EMAIL_STATUS_RECEIVED, now, now, now, key),
-            )
-        elif status == "in_progress":
-            conn.execute(
-                """
-                UPDATE emails
-                   SET register_status = ?, reserved_by = ?,
-                       reserved_at = COALESCE(reserved_at, ?), updated_at = ?
-                 WHERE email = ?
-                """,
-                (EMAIL_STATUS_UNREGISTERED, "gpt-login", now, now, key),
             )
         elif target_status == EMAIL_STATUS_UNREGISTERED:
             conn.execute(
@@ -833,9 +817,6 @@ def mail_pool_summary() -> dict[str, Any]:
         "received": 0,
         "failed": 0,
         "reserved": 0,
-        "not_started": 0,
-        "in_progress": 0,
-        "completed": 0,
     }
     items: list[dict[str, Any]] = []
     for row in rows:
@@ -845,12 +826,6 @@ def mail_pool_summary() -> dict[str, Any]:
         is_reserved = bool(record["reserved_at"])
         if is_reserved:
             summary["reserved"] += 1
-        if status == EMAIL_STATUS_UNREGISTERED and not is_reserved:
-            summary["not_started"] += 1
-        if is_reserved:
-            summary["in_progress"] += 1
-        if status in {EMAIL_STATUS_REGISTERED, EMAIL_STATUS_RECEIVED}:
-            summary["completed"] += 1
         items.append(
             {
                 "email": record["email"],
