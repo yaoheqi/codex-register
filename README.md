@@ -29,7 +29,7 @@ data/emails_unused/mail.csv     -> registered（已注册）
 data/emails_used/mail.csv       -> received（已接码）
 ```
 
-邮箱注册状态分为 `unregistered`（未注册）、`registered`（已注册）、`received`（已接码）、`failed`（失败）。`gpt-login` 邮箱池里的 `进行中` 是 `unregistered` 邮箱被写入 `reserved_at` 后的占用态，可通过管理页或 `/api/gpt-login/mail-pool/reset` 清回 `not_started`。邮箱售出状态分为 `unsold`（未售出）和 `sold`（已售出），只统计并作用于 `registered` 与 `received` 邮箱。
+邮箱注册状态分为 `unregistered`（未注册）、`registered`（已注册）、`received`（已接码）、`failed`（失败）。`gpt-login` 邮箱池里的占用中不是注册状态，只表示 `unregistered` 邮箱被写入 `reserved_at`，可通过管理页或 `/api/gpt-login/mail-pool/reset` 释放占用。
 
 ## 本地接口
 
@@ -59,7 +59,7 @@ DELETE /api/codex-credentials/:id
 管理页支持：
 
 - 写入邮箱账号。
-- 按状态、售卖状态、邮箱或 `client_id` 搜索邮箱。
-- 批量更新邮箱状态、导出 CSV、删除邮箱。
+- 按状态、邮箱或 `client_id` 搜索邮箱。
+- 批量更新邮箱状态、导出可直接导入的账号串、删除邮箱。
 - 查看和手动调整 GPT 登录池状态。
 - 查看、复制、下载、删除 Codex 凭据。

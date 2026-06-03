@@ -8,9 +8,7 @@ Codex 本地资源管理台。
 from __future__ import annotations
 
 import argparse
-import csv
 import datetime as _dt
-import io
 import json
 import re
 import threading
@@ -59,14 +57,6 @@ def email_key(email: str) -> str:
     return str(email or "").strip().lower()
 
 
-def bool_value(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return bool(value)
-    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on", "已"}
-
-
 def parse_email_record(line: str) -> dict[str, str]:
     parts = [part.strip() for part in line.strip().split("----")]
     if len(parts) < 4:
@@ -74,12 +64,15 @@ def parse_email_record(line: str) -> dict[str, str]:
     email = parts[0]
     if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
         raise AppError(f"邮箱格式不正确：{email}")
+    refresh_token = "----".join(parts[3:]).strip()
+    if not parts[2] or not refresh_token:
+        raise AppError("邮箱格式应为 email----password----client_id----refresh_token")
     return {
         "raw": line.strip(),
         "email": email,
         "password": parts[1],
         "client_id": parts[2],
-        "refresh_token": "----".join(parts[3:]).strip(),
+        "refresh_token": refresh_token,
     }
 
 
@@ -112,16 +105,14 @@ def record_email_status(email_record: str, **updates: Any) -> dict[str, Any]:
 
 def list_email_statuses(
     status_filter: str = "registered",
-    sale_filter: str = "unsold",
     query: str = "",
     page: Any = 1,
     page_size: Any = 20,
 ) -> dict[str, Any]:
     status_filter = (status_filter or "registered").strip().lower()
-    sale_filter = (sale_filter or "unsold").strip().lower()
     try:
         with DATA_LOCK:
-            data = store.list_emails(status_filter, sale_filter, query, page, page_size)
+            data = store.list_emails(status_filter, query, page, page_size)
     except ValueError as exc:
         raise AppError(str(exc)) from exc
 
@@ -133,14 +124,6 @@ def list_email_statuses(
             f'{mask_secret(str(item.get("refresh_token") or ""))}'
         )
     return data
-
-
-def update_email_sale_status(values: list[str], is_sold: bool) -> dict[str, int]:
-    try:
-        with DATA_LOCK:
-            return store.update_email_sale(values, is_sold)
-    except ValueError as exc:
-        raise AppError(str(exc)) from exc
 
 
 def update_email_register_status(values: list[str], register_status: str) -> dict[str, int]:
@@ -159,13 +142,46 @@ def delete_email_statuses(values: list[str]) -> dict[str, int]:
         raise AppError(str(exc)) from exc
 
 
-def csv_text(rows: list[dict[str, Any]], fieldnames: list[str]) -> str:
-    output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=fieldnames, lineterminator="\n")
-    writer.writeheader()
+def account_export_line(item: dict[str, Any]) -> str:
+    raw_account: dict[str, str] | None = None
+    raw = str(item.get("raw") or "").strip()
+    if raw:
+        try:
+            raw_account = parse_email_record(raw)
+        except AppError:
+            raw_account = None
+
+    def field(name: str) -> str:
+        return str(item.get(name) or (raw_account or {}).get(name) or "").strip()
+
+    email = field("email").lower()
+    password = field("password")
+    client_id = field("client_id")
+    refresh_token = field("refresh_token")
+
+    if not email or not client_id or not refresh_token:
+        return ""
+
+    line = "----".join([email, password, client_id, refresh_token])
+    try:
+        parse_email_record(line)
+    except AppError:
+        return ""
+    return line
+
+
+def account_lines_text(rows: list[dict[str, Any]]) -> tuple[str, list[str]]:
+    lines: list[str] = []
+    emails: list[str] = []
     for row in rows:
-        writer.writerow({name: row.get(name, "") for name in fieldnames})
-    return output.getvalue()
+        line = account_export_line(row)
+        if not line:
+            continue
+        lines.append(line)
+        email = str(row.get("email") or "").strip()
+        if email:
+            emails.append(email)
+    return "\n".join(lines) + ("\n" if lines else ""), emails
 
 
 def export_email_statuses(body: dict[str, Any]) -> dict[str, Any]:
@@ -202,27 +218,17 @@ def export_email_statuses(body: dict[str, Any]) -> dict[str, Any]:
     if not export_items:
         raise AppError("选中的邮箱里没有可导出的已注册或已接码邮箱")
 
-    values = [str(item.get("email") or "") for item in export_items if item.get("email")]
-    updated = update_email_sale_status(values, True)
-    fields = [
-        "email",
-        "password",
-        "client_id",
-        "refresh_token",
-        "raw",
-        "register_status",
-        "sale_status",
-        "registered_at",
-        "code_received_at",
-        "sold_at",
-    ]
+    text, exported_values = account_lines_text(export_items)
+    exported_count = len(exported_values)
+    if not exported_count:
+        raise AppError("选中的邮箱缺少 client_id 或 refresh_token，无法导出")
+
     return {
-        "count": len(export_items),
-        "text": csv_text(export_items, fields),
-        "filename": f"emails-selected-{now_ts()}.csv",
-        "mime": "text/csv;charset=utf-8",
-        "sale": updated,
-        "skipped": skipped,
+        "count": exported_count,
+        "text": text,
+        "filename": f"email-accounts-{now_ts()}.csv",
+        "mime": "text/plain;charset=utf-8",
+        "skipped": skipped + (len(export_items) - exported_count),
     }
 
 
@@ -230,7 +236,7 @@ def list_items(kind: str, bucket: str, query: str = "", page: Any = 1, page_size
     if kind != "email":
         raise AppError("当前只支持邮箱资源")
     status = "unregistered" if bucket in {"unused", "unregistered"} else bucket
-    return list_email_statuses(status, "all", query, page, page_size)
+    return list_email_statuses(status, query, page, page_size)
 
 
 def add_items(kind: str, bucket: str, text: str | list[str]) -> dict[str, Any]:
@@ -255,18 +261,15 @@ def stats() -> dict[str, int]:
 def gpt_login_account_payload(record: dict[str, Any] | None) -> dict[str, Any] | None:
     if not record:
         return None
-    status = "completed"
-    if record.get("register_status") == store.EMAIL_STATUS_FAILED:
-        status = "failed"
-    elif record.get("register_status") == store.EMAIL_STATUS_UNREGISTERED:
-        status = "in_progress" if record.get("reserved_at") else "not_started"
     return {
         "raw": record.get("raw") or "",
         "email": record.get("email") or "",
         "password": record.get("password") or "",
         "client_id": record.get("client_id") or "",
         "refresh_token": record.get("refresh_token") or "",
-        "status": status,
+        "status": record.get("register_status") or store.EMAIL_STATUS_UNREGISTERED,
+        "register_status": record.get("register_status") or store.EMAIL_STATUS_UNREGISTERED,
+        "is_reserved": bool(record.get("reserved_at")),
     }
 
 
@@ -368,7 +371,6 @@ class AppHandler(BaseHTTPRequestHandler):
             if path == "/api/emails":
                 data = list_email_statuses(
                     query.get("status", ["registered"])[0],
-                    query.get("sale", ["unsold"])[0],
                     query.get("q", [""])[0],
                     query.get("page", ["1"])[0],
                     query.get("page_size", ["20"])[0],
@@ -402,7 +404,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/emails/export":
                 data = export_email_statuses(body)
-                self.send_json({"code": 0, "message": "邮箱已导出并标记为已售出", "data": data})
+                self.send_json({"code": 0, "message": "邮箱已导出", "data": data})
                 return
             if path == "/api/codex-credentials":
                 data = save_codex_credential(body)
@@ -431,11 +433,6 @@ class AppHandler(BaseHTTPRequestHandler):
     def do_PUT(self) -> None:
         try:
             path, _ = self.parse_url()
-            if path == "/api/email-sale":
-                body = self.read_json_body()
-                data = update_email_sale_status(body.get("values") or [], bool_value(body.get("is_sold")))
-                self.send_json({"code": 0, "message": "邮箱卖出状态已更新", "data": data})
-                return
             if path == "/api/email-status":
                 body = self.read_json_body()
                 data = update_email_register_status(body.get("values") or [], str(body.get("status") or ""))

@@ -37,9 +37,6 @@ EMAIL_STATUS_PRIORITY = {
     EMAIL_STATUS_RECEIVED: 2,
 }
 EMAIL_SOURCE_MAPPING_VERSION = "2026-06-03-email-source-files-no-remote-v1"
-SALE_STATUS_UNSOLD = "unsold"
-SALE_STATUS_SOLD = "sold"
-SALE_STATUSES = {SALE_STATUS_UNSOLD, SALE_STATUS_SOLD}
 
 
 def now_ts() -> int:
@@ -68,19 +65,16 @@ def init_db() -> None:
               refresh_token TEXT NOT NULL DEFAULT '',
               register_status TEXT NOT NULL DEFAULT 'unregistered'
                 CHECK (register_status IN ('unregistered', 'registered', 'received', 'failed')),
-              sale_status TEXT NOT NULL DEFAULT 'unsold'
-                CHECK (sale_status IN ('unsold', 'sold')),
               reserved_by TEXT NOT NULL DEFAULT '',
               reserved_at INTEGER,
               registered_at INTEGER,
               code_received_at INTEGER,
-              sold_at INTEGER,
               created_at INTEGER NOT NULL,
               updated_at INTEGER NOT NULL
             );
 
             CREATE INDEX IF NOT EXISTS idx_emails_status
-              ON emails (register_status, sale_status, reserved_at, updated_at);
+              ON emails (register_status, reserved_at, updated_at);
 
             CREATE TABLE IF NOT EXISTS metadata (
               key TEXT PRIMARY KEY,
@@ -101,7 +95,6 @@ def init_db() -> None:
             );
             """
         )
-        ensure_failed_email_status(conn)
         done = conn.execute(
             "SELECT value FROM metadata WHERE key = ?",
             ("legacy_import_done",),
@@ -128,85 +121,6 @@ def init_db() -> None:
                 """,
                 ("email_source_mapping_version", EMAIL_SOURCE_MAPPING_VERSION),
             )
-
-
-def ensure_failed_email_status(conn: sqlite3.Connection) -> None:
-    row = conn.execute(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'emails'"
-    ).fetchone()
-    table_sql = str(row["sql"] or "").lower() if row else ""
-    if "'failed'" in table_sql or '"failed"' in table_sql:
-        return
-
-    columns = {
-        str(item["name"])
-        for item in conn.execute("PRAGMA table_info(emails)").fetchall()
-    }
-
-    def col(name: str, default_sql: str) -> str:
-        return name if name in columns else default_sql
-
-    conn.executescript(
-        f"""
-        DROP INDEX IF EXISTS idx_emails_status;
-        DROP TABLE IF EXISTS emails_status_migration_old;
-        ALTER TABLE emails RENAME TO emails_status_migration_old;
-
-        CREATE TABLE emails (
-          email TEXT PRIMARY KEY,
-          raw TEXT NOT NULL DEFAULT '',
-          password TEXT NOT NULL DEFAULT '',
-          client_id TEXT NOT NULL DEFAULT '',
-          refresh_token TEXT NOT NULL DEFAULT '',
-          register_status TEXT NOT NULL DEFAULT 'unregistered'
-            CHECK (register_status IN ('unregistered', 'registered', 'received', 'failed')),
-          sale_status TEXT NOT NULL DEFAULT 'unsold'
-            CHECK (sale_status IN ('unsold', 'sold')),
-          reserved_by TEXT NOT NULL DEFAULT '',
-          reserved_at INTEGER,
-          registered_at INTEGER,
-          code_received_at INTEGER,
-          sold_at INTEGER,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
-        );
-
-        INSERT INTO emails (
-          email, raw, password, client_id, refresh_token, register_status,
-          sale_status, reserved_by, reserved_at, registered_at, code_received_at,
-          sold_at, created_at, updated_at
-        )
-        SELECT
-          email,
-          {col("raw", "email")},
-          {col("password", "''")},
-          {col("client_id", "''")},
-          {col("refresh_token", "''")},
-          CASE
-            WHEN register_status IN ('unregistered', 'registered', 'received', 'failed')
-              THEN register_status
-            ELSE 'unregistered'
-          END,
-          CASE
-            WHEN {col("sale_status", "'unsold'")} IN ('unsold', 'sold')
-              THEN {col("sale_status", "'unsold'")}
-            ELSE 'unsold'
-          END,
-          {col("reserved_by", "''")},
-          {col("reserved_at", "NULL")},
-          {col("registered_at", "NULL")},
-          {col("code_received_at", "NULL")},
-          {col("sold_at", "NULL")},
-          {col("created_at", "strftime('%s','now')")},
-          {col("updated_at", "strftime('%s','now')")}
-        FROM emails_status_migration_old;
-
-        DROP TABLE emails_status_migration_old;
-
-        CREATE INDEX IF NOT EXISTS idx_emails_status
-          ON emails (register_status, sale_status, reserved_at, updated_at);
-        """
-    )
 
 
 def read_lines(path: Path) -> list[str]:
@@ -260,10 +174,6 @@ def better_status(current: str, incoming: str) -> str:
     if EMAIL_STATUS_PRIORITY[incoming] > EMAIL_STATUS_PRIORITY[current]:
         return incoming
     return current
-
-
-def normalize_sale_status(value: str | None) -> str:
-    return value if value in SALE_STATUSES else SALE_STATUS_UNSOLD
 
 
 def normalize_page(page: Any = 1, page_size: Any = 20) -> tuple[int, int]:
@@ -338,10 +248,8 @@ def upsert_email(
     conn: sqlite3.Connection,
     account: dict[str, str],
     register_status: str = EMAIL_STATUS_UNREGISTERED,
-    sale_status: str = SALE_STATUS_UNSOLD,
     registered_at: Any = None,
     code_received_at: Any = None,
-    sold_at: Any = None,
     created_at: Any = None,
     updated_at: Any = None,
 ) -> None:
@@ -351,7 +259,6 @@ def upsert_email(
     now = now_ts()
     row = conn.execute("SELECT * FROM emails WHERE email = ?", (key,)).fetchone()
     register_status = register_status if register_status in EMAIL_STATUSES else EMAIL_STATUS_UNREGISTERED
-    sale_status = normalize_sale_status(sale_status)
     created = int(created_at or now)
     updated = int(updated_at or now)
     if not row:
@@ -359,9 +266,8 @@ def upsert_email(
             """
             INSERT INTO emails (
               email, raw, password, client_id, refresh_token, register_status,
-              sale_status, registered_at, code_received_at, sold_at,
-              created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              registered_at, code_received_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 key,
@@ -370,10 +276,8 @@ def upsert_email(
                 account.get("client_id") or "",
                 account.get("refresh_token") or "",
                 register_status,
-                sale_status,
                 int(registered_at) if registered_at else None,
                 int(code_received_at) if code_received_at else None,
-                int(sold_at) if sold_at else None,
                 created,
                 updated,
             ),
@@ -381,7 +285,6 @@ def upsert_email(
         return
 
     next_status = better_status(str(row["register_status"]), register_status)
-    next_sale = SALE_STATUS_SOLD if str(row["sale_status"]) == SALE_STATUS_SOLD or sale_status == SALE_STATUS_SOLD else SALE_STATUS_UNSOLD
     conn.execute(
         """
         UPDATE emails
@@ -390,10 +293,8 @@ def upsert_email(
                client_id = CASE WHEN client_id = '' THEN ? ELSE client_id END,
                refresh_token = CASE WHEN refresh_token = '' THEN ? ELSE refresh_token END,
                register_status = ?,
-               sale_status = ?,
                registered_at = COALESCE(registered_at, ?),
                code_received_at = COALESCE(code_received_at, ?),
-               sold_at = COALESCE(sold_at, ?),
                updated_at = MAX(updated_at, ?)
          WHERE email = ?
         """,
@@ -403,10 +304,8 @@ def upsert_email(
             account.get("client_id") or "",
             account.get("refresh_token") or "",
             next_status,
-            next_sale,
             int(registered_at) if registered_at else None,
             int(code_received_at) if code_received_at else None,
-            int(sold_at) if sold_at else None,
             updated,
             key,
         ),
@@ -415,7 +314,6 @@ def upsert_email(
 
 def row_to_email_record(row: sqlite3.Row) -> dict[str, Any]:
     status = str(row["register_status"])
-    sale_status = str(row["sale_status"])
     raw = str(row["raw"] or "").strip()
     return {
         "email": row["email"],
@@ -424,14 +322,11 @@ def row_to_email_record(row: sqlite3.Row) -> dict[str, Any]:
         "client_id": row["client_id"] or "",
         "refresh_token": row["refresh_token"] or "",
         "register_status": status,
-        "sale_status": sale_status,
         "is_registered": status in {EMAIL_STATUS_REGISTERED, EMAIL_STATUS_RECEIVED},
         "has_received_code": status == EMAIL_STATUS_RECEIVED,
         "is_failed": status == EMAIL_STATUS_FAILED,
-        "is_sold": sale_status == SALE_STATUS_SOLD,
         "registered_at": row["registered_at"],
         "code_received_at": row["code_received_at"],
-        "sold_at": row["sold_at"],
         "reserved_by": row["reserved_by"] or "",
         "reserved_at": row["reserved_at"],
         "created_at": row["created_at"],
@@ -452,11 +347,10 @@ def available_email_accounts(active_keys: set[str] | None = None) -> list[dict[s
             """
             SELECT * FROM emails
              WHERE register_status = ?
-               AND sale_status = ?
                AND (reserved_at IS NULL OR reserved_at = 0)
              ORDER BY created_at ASC, email ASC
             """,
-            (EMAIL_STATUS_REGISTERED, SALE_STATUS_UNSOLD),
+            (EMAIL_STATUS_REGISTERED,),
         ).fetchall()
     return [row_to_email_record(row) for row in rows if str(row["email"]) not in active_keys]
 
@@ -479,7 +373,6 @@ def record_email_status(email_record: str, **updates: Any) -> dict[str, Any]:
         elif updates.get("register_status") in EMAIL_STATUSES:
             next_status = str(updates["register_status"])
 
-        sale_status = SALE_STATUS_SOLD if bool_value(updates.get("is_sold")) else None
         set_parts = ["register_status = ?", "updated_at = ?", "reserved_by = ''", "reserved_at = NULL"]
         params: list[Any] = [next_status, now]
         if next_status in {EMAIL_STATUS_REGISTERED, EMAIL_STATUS_RECEIVED}:
@@ -488,10 +381,6 @@ def record_email_status(email_record: str, **updates: Any) -> dict[str, Any]:
         if next_status == EMAIL_STATUS_RECEIVED:
             set_parts.append("code_received_at = COALESCE(code_received_at, ?)")
             params.append(now)
-        if "is_sold" in updates:
-            set_parts.append("sale_status = ?")
-            set_parts.append("sold_at = ?")
-            params.extend([sale_status or SALE_STATUS_UNSOLD, now if sale_status == SALE_STATUS_SOLD else None])
         params.append(key)
         conn.execute(f"UPDATE emails SET {', '.join(set_parts)} WHERE email = ?", params)
         row = conn.execute("SELECT * FROM emails WHERE email = ?", (key,)).fetchone()
@@ -500,29 +389,20 @@ def record_email_status(email_record: str, **updates: Any) -> dict[str, Any]:
 
 def list_emails(
     status_filter: str,
-    sale_filter: str,
     query: str = "",
     page: Any = 1,
     page_size: Any = 20,
 ) -> dict[str, Any]:
     status_filter = (status_filter or EMAIL_STATUS_REGISTERED).strip().lower()
-    sale_filter = (sale_filter or SALE_STATUS_UNSOLD).strip().lower()
     page_number, size = normalize_page(page, page_size)
-    if status_filter not in EMAIL_STATUSES | {"marketable", "all"}:
-        raise ValueError("邮箱状态只能是 unregistered、registered、received、failed、marketable 或 all")
-    if sale_filter not in {"all", SALE_STATUS_UNSOLD, SALE_STATUS_SOLD}:
-        raise ValueError("销售状态只能是 all、unsold 或 sold")
+    if status_filter not in EMAIL_STATUSES | {"all"}:
+        raise ValueError("邮箱状态只能是 unregistered、registered、received、failed 或 all")
 
     where: list[str] = []
     params: list[Any] = []
-    if status_filter == "marketable":
-        where.append("register_status IN ('registered', 'received')")
-    elif status_filter != "all":
+    if status_filter != "all":
         where.append("register_status = ?")
         params.append(status_filter)
-    if sale_filter != "all":
-        where.append("sale_status = ?")
-        params.append(sale_filter)
     needle = (query or "").strip().lower()
     if needle:
         where.append("(email LIKE ? OR client_id LIKE ?)")
@@ -546,7 +426,6 @@ def list_emails(
     total_pages = max(1, (total + size - 1) // size)
     return {
         "status": status_filter,
-        "sale": sale_filter,
         "count": len(items),
         "total": total,
         "page": page_number,
@@ -554,34 +433,6 @@ def list_emails(
         "total_pages": total_pages,
         "items": items,
     }
-
-
-def update_email_sale(values: list[str], is_sold: bool) -> dict[str, int]:
-    targets = {email_key(value) for value in values if email_key(value)}
-    if not targets:
-        raise ValueError("请选择要更新的邮箱")
-    now = now_ts()
-    updated = 0
-    skipped = 0
-    with connect() as conn:
-        for key in targets:
-            row = conn.execute("SELECT email, register_status FROM emails WHERE email = ?", (key,)).fetchone()
-            if not row:
-                skipped += 1
-                continue
-            if str(row["register_status"]) not in {EMAIL_STATUS_REGISTERED, EMAIL_STATUS_RECEIVED}:
-                skipped += 1
-                continue
-            conn.execute(
-                """
-                UPDATE emails
-                   SET sale_status = ?, sold_at = ?, updated_at = ?
-                 WHERE email = ?
-                """,
-                (SALE_STATUS_SOLD if is_sold else SALE_STATUS_UNSOLD, now if is_sold else None, now, key),
-            )
-            updated += 1
-    return {"updated": updated, "skipped": skipped}
 
 
 def update_email_register_status(values: list[str], register_status: str) -> dict[str, int]:
@@ -611,11 +462,9 @@ def update_email_register_status(values: list[str], register_status: str) -> dic
 
             if register_status == EMAIL_STATUS_UNREGISTERED:
                 set_parts.extend([
-                    "sale_status = ?",
                     "registered_at = NULL",
                     "code_received_at = NULL",
                 ])
-                params.append(SALE_STATUS_UNSOLD)
             elif register_status == EMAIL_STATUS_REGISTERED:
                 set_parts.extend([
                     "registered_at = COALESCE(registered_at, ?)",
@@ -630,10 +479,8 @@ def update_email_register_status(values: list[str], register_status: str) -> dic
                 params.extend([now, now])
             elif register_status == EMAIL_STATUS_FAILED:
                 set_parts.extend([
-                    "sale_status = ?",
                     "code_received_at = NULL",
                 ])
-                params.append(SALE_STATUS_UNSOLD)
 
             params.append(key)
             cur = conn.execute(f"UPDATE emails SET {', '.join(set_parts)} WHERE email = ?", params)
@@ -684,12 +531,11 @@ def claim_email(owner: str = "gpt-login") -> dict[str, Any] | None:
             """
             SELECT * FROM emails
              WHERE register_status = ?
-               AND sale_status = ?
                AND (reserved_at IS NULL OR reserved_at = 0)
              ORDER BY created_at ASC, email ASC
              LIMIT 1
             """,
-            (EMAIL_STATUS_UNREGISTERED, SALE_STATUS_UNSOLD),
+            (EMAIL_STATUS_UNREGISTERED,),
         ).fetchone()
         if not row:
             return None
@@ -710,53 +556,74 @@ def mark_gpt_login_email(email: str, status: str) -> None:
     if not key:
         raise ValueError("缺少邮箱")
     status = str(status or "").strip().lower()
+    status_aliases = {
+        "not_started": EMAIL_STATUS_UNREGISTERED,
+        "in_progress": EMAIL_STATUS_UNREGISTERED,
+        "completed": EMAIL_STATUS_REGISTERED,
+    }
+    target_status = status_aliases.get(status, status)
     now = now_ts()
     with connect() as conn:
         row = conn.execute("SELECT * FROM emails WHERE email = ?", (key,)).fetchone()
         if not row:
             raise ValueError("邮箱不存在")
-        if status == "completed":
+        current_status = str(row["register_status"])
+        if target_status == EMAIL_STATUS_REGISTERED:
+            next_status = better_status(current_status, EMAIL_STATUS_REGISTERED)
             conn.execute(
                 """
                 UPDATE emails
                    SET register_status = ?, registered_at = COALESCE(registered_at, ?),
+                       code_received_at = CASE WHEN ? = ? THEN code_received_at ELSE NULL END,
                        reserved_by = '', reserved_at = NULL, updated_at = ?
                  WHERE email = ?
                 """,
-                (EMAIL_STATUS_REGISTERED, now, now, key),
+                (next_status, now, next_status, EMAIL_STATUS_RECEIVED, now, key),
+            )
+        elif target_status == EMAIL_STATUS_RECEIVED:
+            conn.execute(
+                """
+                UPDATE emails
+                   SET register_status = ?, registered_at = COALESCE(registered_at, ?),
+                       code_received_at = COALESCE(code_received_at, ?),
+                       reserved_by = '', reserved_at = NULL, updated_at = ?
+                 WHERE email = ?
+                """,
+                (EMAIL_STATUS_RECEIVED, now, now, now, key),
             )
         elif status == "in_progress":
             conn.execute(
                 """
                 UPDATE emails
-                   SET register_status = ?, sale_status = ?,
-                       reserved_by = ?, reserved_at = COALESCE(reserved_at, ?), updated_at = ?
+                   SET register_status = ?, reserved_by = ?,
+                       reserved_at = COALESCE(reserved_at, ?), updated_at = ?
                  WHERE email = ?
                 """,
-                (EMAIL_STATUS_UNREGISTERED, SALE_STATUS_UNSOLD, "gpt-login", now, now, key),
+                (EMAIL_STATUS_UNREGISTERED, "gpt-login", now, now, key),
             )
-        elif status == "not_started":
+        elif target_status == EMAIL_STATUS_UNREGISTERED:
             conn.execute(
                 """
                 UPDATE emails
-                   SET register_status = ?, sale_status = ?,
-                       reserved_by = '', reserved_at = NULL, updated_at = ?
+                   SET register_status = ?, reserved_by = '',
+                       reserved_at = NULL, registered_at = NULL,
+                       code_received_at = NULL, updated_at = ?
                  WHERE email = ?
                 """,
-                (EMAIL_STATUS_UNREGISTERED, SALE_STATUS_UNSOLD, now, key),
+                (EMAIL_STATUS_UNREGISTERED, now, key),
             )
-        elif status == "failed":
+        elif target_status == EMAIL_STATUS_FAILED:
             conn.execute(
                 """
                 UPDATE emails
-                   SET register_status = ?, sale_status = ?,
-                       reserved_by = '', reserved_at = NULL, updated_at = ?
+                   SET register_status = ?, reserved_by = '',
+                       reserved_at = NULL, updated_at = ?
                  WHERE email = ?
                 """,
-                (EMAIL_STATUS_FAILED, SALE_STATUS_UNSOLD, now, key),
+                (EMAIL_STATUS_FAILED, now, key),
             )
         else:
-            raise ValueError("邮箱状态只能是 not_started、in_progress、completed 或 failed")
+            raise ValueError("邮箱状态只能是 unregistered、registered、received 或 failed")
 
 
 def release_email_reservations() -> None:
@@ -781,14 +648,10 @@ def stats(active_email_keys: set[str] | None = None) -> dict[str, int]:
               SUM(CASE WHEN register_status = 'registered' THEN 1 ELSE 0 END) AS emails_registered,
               SUM(CASE WHEN register_status = 'received' THEN 1 ELSE 0 END) AS emails_received,
               SUM(CASE WHEN register_status = 'failed' THEN 1 ELSE 0 END) AS emails_failed,
-              SUM(CASE WHEN register_status IN ('registered', 'received')
-                        AND sale_status = 'unsold' THEN 1 ELSE 0 END) AS emails_unsold,
-              SUM(CASE WHEN register_status IN ('registered', 'received')
-                        AND sale_status = 'sold' THEN 1 ELSE 0 END) AS emails_sold,
-              SUM(CASE WHEN register_status = 'unregistered' AND sale_status = 'unsold'
+              SUM(CASE WHEN register_status = 'unregistered'
                         AND reserved_at IS NULL THEN 1 ELSE 0 END) AS emails_available,
               SUM(CASE WHEN register_status = 'unregistered' AND reserved_at IS NOT NULL THEN 1 ELSE 0 END) AS emails_reserved,
-              SUM(CASE WHEN register_status = 'registered' AND sale_status = 'unsold'
+              SUM(CASE WHEN register_status = 'registered'
                         AND reserved_at IS NULL THEN 1 ELSE 0 END) AS emails_registered_available,
               SUM(CASE WHEN register_status = 'registered' AND reserved_at IS NOT NULL THEN 1 ELSE 0 END) AS emails_registered_reserved,
               COUNT(*) AS emails_total
@@ -800,8 +663,6 @@ def stats(active_email_keys: set[str] | None = None) -> dict[str, int]:
         "emails_registered": int(row["emails_registered"] or 0),
         "emails_received_code": int(row["emails_received"] or 0),
         "emails_failed": int(row["emails_failed"] or 0),
-        "emails_unsold": int(row["emails_unsold"] or 0),
-        "emails_sold": int(row["emails_sold"] or 0),
         "emails_source_total": int(row["emails_total"] or 0),
         "emails_unused": int(row["emails_unregistered"] or 0),
         "emails_used": int(row["emails_registered"] or 0) + int(row["emails_received"] or 0),
@@ -967,21 +828,29 @@ def mail_pool_summary() -> dict[str, Any]:
         rows = conn.execute("SELECT * FROM emails ORDER BY created_at ASC, email ASC").fetchall()
     summary = {
         "total": len(rows),
+        "unregistered": 0,
+        "registered": 0,
+        "received": 0,
+        "failed": 0,
+        "reserved": 0,
         "not_started": 0,
         "in_progress": 0,
         "completed": 0,
-        "failed": 0,
     }
     items: list[dict[str, Any]] = []
     for row in rows:
         record = row_to_email_record(row)
-        if record["register_status"] == EMAIL_STATUS_FAILED:
-            status = "failed"
-        elif record["register_status"] == EMAIL_STATUS_UNREGISTERED:
-            status = "in_progress" if record["reserved_at"] else "not_started"
-        else:
-            status = "completed"
+        status = record["register_status"]
         summary[status] += 1
+        is_reserved = bool(record["reserved_at"])
+        if is_reserved:
+            summary["reserved"] += 1
+        if status == EMAIL_STATUS_UNREGISTERED and not is_reserved:
+            summary["not_started"] += 1
+        if is_reserved:
+            summary["in_progress"] += 1
+        if status in {EMAIL_STATUS_REGISTERED, EMAIL_STATUS_RECEIVED}:
+            summary["completed"] += 1
         items.append(
             {
                 "email": record["email"],
@@ -990,7 +859,10 @@ def mail_pool_summary() -> dict[str, Any]:
                 "register_status": record["register_status"],
                 "reserved_by": record["reserved_by"],
                 "reserved_at": record["reserved_at"],
+                "is_reserved": is_reserved,
                 "updated_at": record["updated_at"],
+                "registered_at": record["registered_at"],
+                "code_received_at": record["code_received_at"],
             }
         )
     return {
