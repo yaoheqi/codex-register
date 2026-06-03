@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Codex 本地资源管理台。
+邮箱资源管理台。
 
-当前服务只保留本地邮箱资源、GPT 登录池与 Codex 凭据管理。
+当前服务只保留本地邮箱资源与 GPT 登录池接口。
 """
 
 from __future__ import annotations
@@ -307,47 +307,8 @@ def gpt_login_sync_mail_pool() -> dict[str, Any]:
     return pool
 
 
-def save_codex_credential(body: dict[str, Any]) -> dict[str, Any]:
-    try:
-        with DATA_LOCK:
-            return store.save_codex_credential(body)
-    except ValueError as exc:
-        raise AppError(str(exc)) from exc
-
-
-def list_codex_credentials(query: str = "") -> dict[str, Any]:
-    try:
-        with DATA_LOCK:
-            return store.list_codex_credentials(query)
-    except ValueError as exc:
-        raise AppError(str(exc)) from exc
-
-
-def get_codex_credential(record_id: str) -> dict[str, Any]:
-    try:
-        with DATA_LOCK:
-            return store.get_codex_credential(record_id)
-    except ValueError as exc:
-        raise AppError(str(exc), 404) from exc
-
-
-def delete_codex_credential(record_id: str) -> dict[str, Any]:
-    try:
-        with DATA_LOCK:
-            return store.delete_codex_credential(record_id)
-    except ValueError as exc:
-        raise AppError(str(exc)) from exc
-
-
-def codex_credential_id_from_path(path: str) -> str:
-    prefix = "/api/codex-credentials/"
-    if not path.startswith(prefix):
-        return ""
-    return urllib.parse.unquote(path[len(prefix) :].strip())
-
-
 class AppHandler(BaseHTTPRequestHandler):
-    server_version = "CodexResourceManager/2.0"
+    server_version = "EmailResourceManager/3.0"
 
     def log_message(self, fmt: str, *args: Any) -> None:
         print("[%s] %s" % (iso_time(), fmt % args))
@@ -360,13 +321,6 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/stats":
                 self.send_json({"code": 0, "data": stats()})
-                return
-            if path == "/api/codex-credentials":
-                self.send_json({"code": 0, "data": list_codex_credentials(query.get("q", [""])[0])})
-                return
-            credential_id = codex_credential_id_from_path(path)
-            if credential_id:
-                self.send_json({"code": 0, "data": get_codex_credential(credential_id)})
                 return
             if path == "/api/emails":
                 data = list_email_statuses(
@@ -405,10 +359,6 @@ class AppHandler(BaseHTTPRequestHandler):
             if path == "/api/emails/export":
                 data = export_email_statuses(body)
                 self.send_json({"code": 0, "message": "邮箱已导出", "data": data})
-                return
-            if path == "/api/codex-credentials":
-                data = save_codex_credential(body)
-                self.send_json({"code": 0, "message": "Codex 凭据已保存", "data": data})
                 return
             if path == "/api/gpt-login/mail-pool/claim":
                 account = gpt_login_claim_email()
@@ -449,11 +399,6 @@ class AppHandler(BaseHTTPRequestHandler):
             if path == "/api/emails":
                 data = delete_email_statuses(body.get("values") or [])
                 self.send_json({"code": 0, "message": "邮箱已删除", "data": data})
-                return
-            credential_id = codex_credential_id_from_path(path)
-            if credential_id:
-                data = delete_codex_credential(credential_id)
-                self.send_json({"code": 0, "message": "Codex 凭据已删除", "data": data})
                 return
             raise AppError("接口不存在", 404)
         except Exception as exc:
@@ -517,7 +462,7 @@ def run_server(host: str, port: int) -> None:
     ensure_storage()
     server = ThreadingHTTPServer((host, port), AppHandler)
     url_host = "127.0.0.1" if host in {"0.0.0.0", ""} else host
-    print(f"Codex 本地资源管理台已启动：http://{url_host}:{port}/")
+    print(f"邮箱资源管理台已启动：http://{url_host}:{port}/")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -527,7 +472,7 @@ def run_server(host: str, port: int) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Codex 本地资源管理台")
+    parser = argparse.ArgumentParser(description="邮箱资源管理台")
     parser.add_argument("--host", default="127.0.0.1", help="本地服务监听地址")
     parser.add_argument("--port", type=int, default=8060, help="本地服务端口")
     args = parser.parse_args()

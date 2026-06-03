@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
-"""统一管理邮箱资源与 Codex 凭据的 SQLite 数据层。"""
+"""统一管理邮箱资源的 SQLite 数据层。"""
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 import sqlite3
 import time
@@ -81,18 +79,6 @@ def init_db() -> None:
               value TEXT NOT NULL
             );
 
-            CREATE TABLE IF NOT EXISTS codex_credentials (
-              id TEXT PRIMARY KEY,
-              email TEXT NOT NULL DEFAULT '',
-              account_id TEXT NOT NULL DEFAULT '',
-              plan_type TEXT NOT NULL DEFAULT '',
-              source TEXT NOT NULL DEFAULT '',
-              credential_json TEXT NOT NULL DEFAULT '{}',
-              last_refresh TEXT NOT NULL DEFAULT '',
-              expired TEXT NOT NULL DEFAULT '',
-              created_at INTEGER NOT NULL,
-              updated_at INTEGER NOT NULL
-            );
             """
         )
         done = conn.execute(
@@ -655,156 +641,6 @@ def stats(active_email_keys: set[str] | None = None) -> dict[str, int]:
         "emails_registered_available": max(0, int(row["emails_registered_available"] or 0) - len(active_email_keys)),
         "emails_registered_reserved": int(row["emails_registered_reserved"] or 0) + len(active_email_keys),
     }
-
-
-def credential_storage_id(payload: dict[str, Any]) -> str:
-    value = str(payload.get("id") or payload.get("account_id") or payload.get("email") or "").strip()
-    if value:
-        return value.lower()
-    credential = payload.get("credential")
-    raw = json.dumps(credential if isinstance(credential, dict) else payload, ensure_ascii=False, sort_keys=True)
-    return "cred-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
-
-
-def credential_token_flags(credential: dict[str, Any]) -> dict[str, bool]:
-    tokens = credential.get("tokens") if isinstance(credential.get("tokens"), dict) else {}
-    return {
-        "has_access_token": bool(credential.get("access_token") or tokens.get("access_token")),
-        "has_refresh_token": bool(credential.get("refresh_token") or tokens.get("refresh_token")),
-        "has_id_token": bool(credential.get("id_token") or tokens.get("id_token")),
-        "has_session_token": bool(credential.get("session_token") or tokens.get("session_token")),
-    }
-
-
-def row_to_codex_credential(row: sqlite3.Row, include_credential: bool = False) -> dict[str, Any]:
-    try:
-        credential = json.loads(row["credential_json"] or "{}")
-        if not isinstance(credential, dict):
-            credential = {}
-    except json.JSONDecodeError:
-        credential = {}
-    data = {
-        "id": row["id"],
-        "email": row["email"] or "",
-        "account_id": row["account_id"] or "",
-        "plan_type": row["plan_type"] or "",
-        "source": row["source"] or "",
-        "last_refresh": row["last_refresh"] or "",
-        "expired": row["expired"] or "",
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
-        "has_credential": bool(credential),
-        **credential_token_flags(credential),
-    }
-    if include_credential:
-        data["credential"] = credential
-    return data
-
-
-def save_codex_credential(payload: dict[str, Any]) -> dict[str, Any]:
-    credential = payload.get("credential")
-    if not isinstance(credential, dict) or not credential:
-        raise ValueError("缺少 Codex 凭据")
-    now = now_ts()
-    email = str(payload.get("email") or credential.get("email") or "").strip().lower()
-    account_id = str(
-        payload.get("account_id")
-        or credential.get("account_id")
-        or credential.get("chatgpt_account_id")
-        or ""
-    ).strip()
-    plan_type = str(payload.get("plan_type") or credential.get("plan_type") or "").strip()
-    source = str(payload.get("source") or credential.get("source") or "merged-gpt-login-extension").strip()
-    last_refresh = str(payload.get("last_refresh") or credential.get("last_refresh") or "").strip()
-    expired = str(payload.get("expired") or credential.get("expired") or "").strip()
-    record = {
-        "id": credential_storage_id({"id": payload.get("id"), "email": email, "account_id": account_id, "credential": credential}),
-        "email": email,
-        "account_id": account_id,
-        "plan_type": plan_type,
-        "source": source,
-        "credential_json": json.dumps(credential, ensure_ascii=False, sort_keys=True),
-        "last_refresh": last_refresh,
-        "expired": expired,
-    }
-    with connect() as conn:
-        conn.execute(
-            """
-            INSERT INTO codex_credentials (
-              id, email, account_id, plan_type, source, credential_json,
-              last_refresh, expired, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-              email = excluded.email,
-              account_id = excluded.account_id,
-              plan_type = excluded.plan_type,
-              source = excluded.source,
-              credential_json = excluded.credential_json,
-              last_refresh = excluded.last_refresh,
-              expired = excluded.expired,
-              updated_at = excluded.updated_at
-            """,
-            (
-                record["id"],
-                record["email"],
-                record["account_id"],
-                record["plan_type"],
-                record["source"],
-                record["credential_json"],
-                record["last_refresh"],
-                record["expired"],
-                now,
-                now,
-            ),
-        )
-        row = conn.execute(
-            "SELECT * FROM codex_credentials WHERE id = ?",
-            (record["id"],),
-        ).fetchone()
-    return row_to_codex_credential(row)
-
-
-def list_codex_credentials(query: str = "") -> dict[str, Any]:
-    needle = str(query or "").strip().lower()
-    where = "1 = 1"
-    params: list[Any] = []
-    if needle:
-        where = "(LOWER(email) LIKE ? OR LOWER(account_id) LIKE ? OR LOWER(source) LIKE ?)"
-        like = f"%{needle}%"
-        params.extend([like, like, like])
-    with connect() as conn:
-        rows = conn.execute(
-            f"""
-            SELECT * FROM codex_credentials
-             WHERE {where}
-             ORDER BY updated_at DESC, email ASC, account_id ASC
-            """,
-            params,
-        ).fetchall()
-    return {
-        "items": [row_to_codex_credential(row) for row in rows],
-        "total": len(rows),
-    }
-
-
-def get_codex_credential(record_id: str) -> dict[str, Any]:
-    value = str(record_id or "").strip()
-    if not value:
-        raise ValueError("缺少凭据 ID")
-    with connect() as conn:
-        row = conn.execute("SELECT * FROM codex_credentials WHERE id = ?", (value,)).fetchone()
-    if not row:
-        raise ValueError("Codex 凭据不存在")
-    return row_to_codex_credential(row, include_credential=True)
-
-
-def delete_codex_credential(record_id: str) -> dict[str, Any]:
-    value = str(record_id or "").strip()
-    if not value:
-        raise ValueError("缺少凭据 ID")
-    with connect() as conn:
-        cur = conn.execute("DELETE FROM codex_credentials WHERE id = ?", (value,))
-    return {"removed": int(cur.rowcount or 0), "id": value}
 
 
 def mail_pool_summary() -> dict[str, Any]:
