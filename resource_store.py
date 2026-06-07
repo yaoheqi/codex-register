@@ -132,17 +132,21 @@ def bool_value(value: Any) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on", "已"}
 
 
+def normalize_account_line(line: str) -> str:
+    return str(line or "").strip().lstrip("\ufeff")
+
+
 def parse_email_record(line: str) -> dict[str, str] | None:
-    text = str(line or "").strip()
+    text = normalize_account_line(line)
     if not text or text.startswith("#"):
         return None
-    parts = [part.strip() for part in text.split("----")]
+    parts = [part.strip() for part in text.split("----", 3)]
     if len(parts) < 4:
         return None
     email = parts[0]
     if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
         return None
-    refresh_token = "----".join(parts[3:]).strip()
+    refresh_token = parts[3].strip()
     if not refresh_token:
         return None
     return {
@@ -207,6 +211,38 @@ def import_email_file(
     return {"imported": imported, "skipped": skipped}
 
 
+def repair_email_credentials(conn: sqlite3.Connection) -> dict[str, int]:
+    repaired = 0
+    skipped = 0
+    rows = conn.execute("SELECT email, raw FROM emails").fetchall()
+    for row in rows:
+        parsed = parse_email_record(str(row["raw"] or ""))
+        if not parsed:
+            skipped += 1
+            continue
+        conn.execute(
+            """
+            UPDATE emails
+               SET raw = ?,
+                   password = ?,
+                   client_id = ?,
+                   refresh_token = ?,
+                   updated_at = ?
+             WHERE email = ?
+            """,
+            (
+                parsed["raw"],
+                parsed["password"],
+                parsed["client_id"],
+                parsed["refresh_token"],
+                now_ts(),
+                row["email"],
+            ),
+        )
+        repaired += 1
+    return {"repaired": repaired, "skipped": skipped}
+
+
 def sync_source_files(conn: sqlite3.Connection | None = None) -> dict[str, int]:
     if conn is None:
         with connect() as local_conn:
@@ -217,6 +253,7 @@ def sync_source_files(conn: sqlite3.Connection | None = None) -> dict[str, int]:
         "emails_registered": 0,
         "emails_received": 0,
         "emails_skipped": 0,
+        "emails_repaired": 0,
     }
     for path, status in email_source_files():
         result = import_email_file(conn, path, status)
@@ -227,6 +264,9 @@ def sync_source_files(conn: sqlite3.Connection | None = None) -> dict[str, int]:
         elif status == EMAIL_STATUS_RECEIVED:
             summary["emails_received"] += result["imported"]
         summary["emails_skipped"] += result["skipped"]
+    repair = repair_email_credentials(conn)
+    summary["emails_repaired"] = repair["repaired"]
+    summary["emails_skipped"] += repair["skipped"]
     return summary
 
 
@@ -239,6 +279,11 @@ def upsert_email(
     created_at: Any = None,
     updated_at: Any = None,
 ) -> None:
+    raw = str(account.get("raw") or "").strip()
+    parsed = parse_email_record(raw) if raw else None
+    if parsed:
+        account = {**account, **parsed, "raw": parsed["raw"]}
+
     key = email_key(account.get("email") or "")
     if not key:
         return
@@ -274,10 +319,10 @@ def upsert_email(
     conn.execute(
         """
         UPDATE emails
-           SET raw = CASE WHEN raw = '' THEN ? ELSE raw END,
-               password = CASE WHEN password = '' THEN ? ELSE password END,
-               client_id = CASE WHEN client_id = '' THEN ? ELSE client_id END,
-               refresh_token = CASE WHEN refresh_token = '' THEN ? ELSE refresh_token END,
+           SET raw = ?,
+               password = ?,
+               client_id = ?,
+               refresh_token = ?,
                register_status = ?,
                registered_at = COALESCE(registered_at, ?),
                code_received_at = COALESCE(code_received_at, ?),
@@ -301,12 +346,24 @@ def upsert_email(
 def row_to_email_record(row: sqlite3.Row) -> dict[str, Any]:
     status = str(row["register_status"])
     raw = str(row["raw"] or "").strip()
+    parsed = parse_email_record(raw) if raw else None
+    if parsed:
+        email = parsed["email"]
+        password = parsed["password"]
+        client_id = parsed["client_id"]
+        refresh_token = parsed["refresh_token"]
+        raw = parsed["raw"]
+    else:
+        email = row["email"]
+        password = row["password"] or ""
+        client_id = row["client_id"] or ""
+        refresh_token = row["refresh_token"] or ""
     return {
-        "email": row["email"],
-        "raw": raw or row["email"],
-        "password": row["password"] or "",
-        "client_id": row["client_id"] or "",
-        "refresh_token": row["refresh_token"] or "",
+        "email": email,
+        "raw": raw or email,
+        "password": password,
+        "client_id": client_id,
+        "refresh_token": refresh_token,
         "register_status": status,
         "is_registered": status in {EMAIL_STATUS_REGISTERED, EMAIL_STATUS_RECEIVED},
         "has_received_code": status == EMAIL_STATUS_RECEIVED,

@@ -15,6 +15,7 @@ import threading
 import time
 import traceback
 import urllib.parse
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,14 @@ ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 
 INDEX_FILE = ROOT / "index.html"
+
+OUTLOOK_TOKEN_SCOPE = (
+    "openid profile offline_access https://graph.microsoft.com/Mail.Read"
+)
+
+UUID_PATTERN = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
 DATA_LOCK = threading.RLock()
 
@@ -51,20 +60,28 @@ def iso_time(ts: int | float | None = None) -> str:
 def ensure_storage() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     store.init_db()
+    with DATA_LOCK:
+        with store.connect() as conn:
+            store.repair_email_credentials(conn)
 
 
 def email_key(email: str) -> str:
     return str(email or "").strip().lower()
 
 
+def normalize_account_line(line: str) -> str:
+    return str(line or "").strip().lstrip("\ufeff")
+
+
 def parse_email_record(line: str) -> dict[str, str]:
-    parts = [part.strip() for part in line.strip().split("----")]
+    line = normalize_account_line(line)
+    parts = [part.strip() for part in line.split("----", 3)]
     if len(parts) < 4:
         raise AppError("邮箱格式应为 email----password----client_id----refresh_token")
     email = parts[0]
     if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
         raise AppError(f"邮箱格式不正确：{email}")
-    refresh_token = "----".join(parts[3:]).strip()
+    refresh_token = parts[3].strip()
     if not parts[2] or not refresh_token:
         raise AppError("邮箱格式应为 email----password----client_id----refresh_token")
     return {
@@ -76,15 +93,75 @@ def parse_email_record(line: str) -> dict[str, str]:
     }
 
 
+def looks_like_access_jwt(token: str) -> bool:
+    value = str(token or "").strip()
+    return value.startswith("eyJ") and value.count(".") >= 2
+
+
+def validate_refresh_token(refresh_token: str, client_id: str) -> None:
+    token = str(refresh_token or "").strip()
+    if not token:
+        raise AppError("邮箱账号缺少 refresh_token")
+    if token == str(client_id or "").strip():
+        raise AppError("refresh_token 与 client_id 相同，请检查账号串 raw 是否完整")
+    if UUID_PATTERN.match(token):
+        raise AppError("refresh_token 疑似为 client_id，请检查账号串 raw 是否完整")
+    if len(token) < 32:
+        raise AppError("refresh_token 长度异常，请检查账号串是否完整")
+
+
+def enrich_account_from_store(account: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(account or {})
+    raw = normalize_account_line(str(merged.get("raw") or ""))
+    email = email_key(str(merged.get("email") or ""))
+    if not raw and email:
+        with DATA_LOCK:
+            records = store.load_email_records()
+        record = records.get(email)
+        if record:
+            raw = normalize_account_line(str(record.get("raw") or ""))
+            merged = {**record, **merged}
+    if raw:
+        merged["raw"] = raw
+    return merged
+
+
+def resolve_outlook_account(account: dict[str, Any]) -> dict[str, str]:
+    account = enrich_account_from_store(account)
+    raw = normalize_account_line(str(account.get("raw") or ""))
+    if raw:
+        try:
+            return parse_email_record(raw)
+        except AppError:
+            pass
+
+    client_id = str(account.get("client_id") or "").strip()
+    refresh_token = str(account.get("refresh_token") or "").strip()
+    email = str(account.get("email") or "").strip()
+    password = str(account.get("password") or "").strip()
+    if not email:
+        raise AppError("邮箱账号缺少 email")
+    if not client_id:
+        raise AppError("邮箱账号缺少 client_id")
+    validate_refresh_token(refresh_token, client_id)
+    return {
+        "raw": raw or email,
+        "email": email,
+        "password": password,
+        "client_id": client_id,
+        "refresh_token": refresh_token,
+    }
+
+
 def normalize_email_values(text: str | list[str]) -> list[str]:
     raw_values = text if isinstance(text, list) else str(text or "").splitlines()
     values: list[str] = []
     for raw in raw_values:
-        value = str(raw).strip()
+        value = normalize_account_line(raw)
         if not value:
             continue
-        parse_email_record(value)
-        values.append(value)
+        parsed = parse_email_record(value)
+        values.append(parsed["raw"])
     return values
 
 
@@ -95,12 +172,250 @@ def mask_secret(value: str, keep: int = 8) -> str:
     return value[:keep] + "..." + value[-keep:]
 
 
+def http_json(url: str, method: str = "GET", headers: dict[str, str] | None = None, body: bytes | None = None) -> dict[str, Any]:
+    req = urllib.request.Request(url, data=body, method=method, headers=headers or {})
+    try:
+      with urllib.request.urlopen(req, timeout=20) as res:
+          text = res.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+      text = exc.read().decode("utf-8", errors="replace")
+      try:
+          payload = json.loads(text)
+      except Exception:
+          payload = {"error": text}
+      message = format_mail_api_error(payload) or f"HTTP {exc.code}"
+      raise AppError(message, exc.code if 400 <= exc.code < 600 else 400, payload) from exc
+    try:
+      return json.loads(text)
+    except Exception as exc:
+      raise AppError("邮件接口返回不是 JSON") from exc
+
+
+def format_mail_api_error(payload: Any) -> str:
+    if not payload:
+        return ""
+    if isinstance(payload, str):
+        return payload
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, str):
+            detail = payload.get("error_description") or payload.get("message") or ""
+            return f"{error}：{detail}" if detail else error
+        if isinstance(error, dict):
+            return str(error.get("message") or error.get("detail") or error)
+        return str(payload.get("message") or payload.get("detail") or "")
+    return str(payload)
+
+
 def record_email_status(email_record: str, **updates: Any) -> dict[str, Any]:
     try:
         with DATA_LOCK:
             return store.record_email_status(email_record, **updates)
     except ValueError as exc:
         raise AppError(str(exc)) from exc
+
+
+def fetch_outlook_token(account: dict[str, Any], scope: str | None = OUTLOOK_TOKEN_SCOPE, validate_jwt: bool = True) -> str:
+    resolved = resolve_outlook_account(account)
+    client_id = resolved["client_id"]
+    refresh_token = resolved["refresh_token"]
+    token_payload = {
+        "client_id": client_id,
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+    }
+    if scope:
+        token_payload["scope"] = scope
+    body = urllib.parse.urlencode(token_payload).encode("utf-8")
+    data = http_json(
+        "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+        method="POST",
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body=body,
+    )
+    if data.get("error"):
+        raise AppError(format_mail_api_error(data) or "刷新 access_token 失败")
+    token = str(data.get("access_token") or "")
+    if not token:
+        raise AppError("Token 返回缺少 access_token")
+    if validate_jwt and not looks_like_access_jwt(token):
+        raise AppError("Token 返回的 access_token 不是有效 JWT，请检查 refresh_token 是否过期或账号串是否完整")
+    return token
+
+
+def get_outlook_access_token(account: dict[str, Any]) -> str:
+    return fetch_outlook_token(account, scope=OUTLOOK_TOKEN_SCOPE, validate_jwt=True)
+
+
+def get_outlook_v2_access_token(account: dict[str, Any], fallback_to_scoped: bool = True) -> str:
+    try:
+        return fetch_outlook_token(account, scope=None, validate_jwt=False)
+    except AppError as exc:
+        if not fallback_to_scoped:
+            raise
+        try:
+            return get_outlook_access_token(account)
+        except AppError as scoped_exc:
+            raise AppError(f"Outlook v2.0 Token 获取失败：{exc}；Graph scope 兜底失败：{scoped_exc}") from scoped_exc
+
+
+def fetch_graph_latest_mail(access_token: str, folder: str) -> dict[str, Any] | None:
+    query = urllib.parse.urlencode(
+        {
+            "$top": "1",
+            "$orderby": "receivedDateTime desc",
+            "$select": "subject,bodyPreview,from,receivedDateTime",
+        }
+    )
+    url = f"https://graph.microsoft.com/v1.0/me/mailFolders/{urllib.parse.quote(folder)}/messages?{query}"
+    data = http_json(
+        url,
+        headers={
+            "Accept": "application/json",
+            "Authorization": "Bearer " + access_token,
+        },
+    )
+    values = data.get("value")
+    if isinstance(values, list) and values:
+        return values[0]
+    return None
+
+
+def fetch_outlook_v2_latest_mail(access_token: str, folder: str) -> dict[str, Any] | None:
+    query = urllib.parse.urlencode(
+        {
+            "$top": "1",
+            "$orderby": "ReceivedDateTime desc",
+            "$select": "Subject,BodyPreview,From,ReceivedDateTime",
+        }
+    )
+    url = f"https://outlook.office.com/api/v2.0/me/mailfolders/{urllib.parse.quote(folder)}/messages?{query}"
+    data = http_json(
+        url,
+        headers={
+            "Accept": "application/json",
+            "Authorization": "Bearer " + access_token,
+        },
+    )
+    values = data.get("value")
+    if isinstance(values, list) and values:
+        return values[0]
+    return None
+
+
+def extract_mail_code(text: str) -> str | None:
+    patterns = [
+        r"验证码[^\d]{0,20}(\d{6})(?!\d)",
+        r"code[^\d]{0,20}(\d{6})(?!\d)",
+        r"verification[^\d]{0,30}(\d{6})(?!\d)",
+        r"(?<!\d)(\d{6})(?!\d)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text or "", re.I)
+        if match:
+            return match.group(1)
+    return None
+
+
+def normalize_mail_sender(mail: dict[str, Any]) -> str:
+    for key in ("from", "From", "sender", "Sender"):
+        from_data = mail.get(key)
+        if not isinstance(from_data, dict):
+            continue
+        email_data = from_data.get("emailAddress") or from_data.get("EmailAddress")
+        if isinstance(email_data, dict):
+            return str(email_data.get("address") or email_data.get("Address") or "")
+    return ""
+
+
+def normalize_mail(mail: dict[str, Any], mailbox: str, label: str) -> dict[str, Any]:
+    subject = str(mail.get("subject") or mail.get("Subject") or "")
+    preview = str(mail.get("bodyPreview") or mail.get("BodyPreview") or "")
+    received = str(mail.get("receivedDateTime") or mail.get("ReceivedDateTime") or "")
+    return {
+        "mailbox": mailbox,
+        "mailboxLabel": label,
+        "sender": normalize_mail_sender(mail),
+        "subject": subject,
+        "preview": preview,
+        "received": received,
+        "code": extract_mail_code(subject + " " + preview),
+    }
+
+
+def normalize_graph_mail(mail: dict[str, Any], mailbox: str, label: str) -> dict[str, Any]:
+    return normalize_mail(mail, mailbox, label)
+
+
+def fetch_mail_code_from_boxes(
+    access_token: str,
+    fetcher: Any,
+    normalizer: Any,
+    source: str,
+) -> dict[str, Any]:
+    boxes = [("inbox", "收件箱"), ("junkemail", "垃圾箱")]
+    mails: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for mailbox, label in boxes:
+        try:
+            mail = fetcher(access_token, mailbox)
+            if mail:
+                normalized = normalizer(mail, mailbox, label)
+                normalized["source"] = source
+                mails.append(normalized)
+                if normalized.get("code"):
+                    return {"best": normalized, "mails": mails, "errors": errors}
+        except AppError as exc:
+            errors.append(f"{label}：{exc}")
+    candidates = [mail for mail in mails if mail.get("code")]
+    best = candidates[0] if candidates else None
+    return {"best": best, "mails": mails, "errors": errors}
+
+
+def merge_mail_code_results(primary: dict[str, Any], fallback: dict[str, Any] | None = None) -> dict[str, Any]:
+    if not fallback:
+        return primary
+    return {
+        "best": primary.get("best") or fallback.get("best"),
+        "mails": (primary.get("mails") or []) + (fallback.get("mails") or []),
+        "errors": (primary.get("errors") or []) + (fallback.get("errors") or []),
+    }
+
+
+def gpt_login_fetch_mail_code(account: dict[str, Any]) -> dict[str, Any]:
+    resolved = resolve_outlook_account(account)
+    v2_errors: list[str] = []
+    try:
+        access_token = get_outlook_v2_access_token(resolved)
+        v2_result = fetch_mail_code_from_boxes(
+            access_token,
+            fetch_outlook_v2_latest_mail,
+            normalize_mail,
+            "outlook-v2",
+        )
+        if v2_result.get("best"):
+            return v2_result
+        v2_errors.extend(v2_result.get("errors") or [])
+        if v2_result.get("mails"):
+            return v2_result
+    except AppError as exc:
+        v2_errors.append(f"Outlook v2.0：{exc}")
+
+    try:
+        access_token = get_outlook_access_token(resolved)
+        graph_result = fetch_mail_code_from_boxes(
+            access_token,
+            fetch_graph_latest_mail,
+            normalize_graph_mail,
+            "graph",
+        )
+        graph_result["errors"] = v2_errors + (graph_result.get("errors") or [])
+        return graph_result
+    except AppError as exc:
+        return {"best": None, "mails": [], "errors": v2_errors + [f"Graph：{exc}"]}
 
 
 def list_email_statuses(
@@ -261,12 +576,22 @@ def stats() -> dict[str, int]:
 def gpt_login_account_payload(record: dict[str, Any] | None) -> dict[str, Any] | None:
     if not record:
         return None
+    try:
+        resolved = resolve_outlook_account(record)
+    except AppError:
+        resolved = {
+            "raw": record.get("raw") or "",
+            "email": record.get("email") or "",
+            "password": record.get("password") or "",
+            "client_id": record.get("client_id") or "",
+            "refresh_token": record.get("refresh_token") or "",
+        }
     return {
-        "raw": record.get("raw") or "",
-        "email": record.get("email") or "",
-        "password": record.get("password") or "",
-        "client_id": record.get("client_id") or "",
-        "refresh_token": record.get("refresh_token") or "",
+        "raw": resolved.get("raw") or record.get("raw") or "",
+        "email": resolved.get("email") or record.get("email") or "",
+        "password": resolved.get("password") or record.get("password") or "",
+        "client_id": resolved.get("client_id") or record.get("client_id") or "",
+        "refresh_token": resolved.get("refresh_token") or record.get("refresh_token") or "",
         "status": record.get("register_status") or store.EMAIL_STATUS_UNREGISTERED,
         "register_status": record.get("register_status") or store.EMAIL_STATUS_UNREGISTERED,
         "is_reserved": bool(record.get("reserved_at")),
@@ -367,6 +692,10 @@ class AppHandler(BaseHTTPRequestHandler):
             if path == "/api/gpt-login/mail-pool/mark":
                 data = gpt_login_mark_email(str(body.get("email") or ""), str(body.get("status") or ""))
                 self.send_json({"code": 0, "message": "邮箱状态已更新", "data": data})
+                return
+            if path == "/api/gpt-login/mail-code":
+                data = gpt_login_fetch_mail_code(body.get("account") or {})
+                self.send_json({"code": 0, "message": "邮箱验证码已查询", "data": data})
                 return
             if path == "/api/gpt-login/mail-pool/reset":
                 data = gpt_login_reset_mail_pool()
